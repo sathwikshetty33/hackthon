@@ -1,0 +1,15 @@
+2025-07-29 17:01:01,511 - hackthon.logging - INFO - lifespan:53 - Starting Rate-Limited Multi-Thread PDF Q&A System...
+2025-07-29 17:01:28,544 - hackthon.logging - INFO - lifespan:53 - Starting Rate-Limited Multi-Thread PDF Q&A System...
+2025-07-29 17:01:28,544 - hackthon.logging - INFO - _validate_config:107 - System configured with 3 threads using 3 API keys
+2025-07-29 17:01:28,544 - hackthon.logging - INFO - _initialize_components:111 - Initializing Rate-Limited Multi-Thread PDF Q&A System (3 threads)...
+2025-07-29 17:01:28,545 - hackthon.logging - WARNING - _initialize_components:118 - spaCy model not found
+2025-07-29 17:01:31,183 - hackthon.logging - INFO - _initialize_components:128 - Embedding model loaded
+2025-07-29 17:01:31,183 - hackthon.logging - WARNING - _initialize_components:140 - Qdrant connection failed: descriptor '__init__' of 'super' object needs an argument
+2025-07-29 17:01:31,183 - hackthon.logging - INFO - _initialize_components:149 - All components initialized successfully!
+2025-07-29 17:01:31,184 - hackthon.logging - INFO - _setup_thread_pools:155 - Thread pools configured: 5 chunking, 3 querying
+2025-07-29 17:01:31,184 - hackthon.logging - INFO - __init__:93 - Redis caching disabled in config
+2025-07-29 17:01:31,223 - hackthon.logging - INFO - __init__:100 - Groq client 1 initialized
+2025-07-29 17:01:31,241 - hackthon.logging - INFO - __init__:100 - Groq client 2 initialized
+2025-07-29 17:01:31,257 - hackthon.logging - INFO - __init__:100 - Groq client 3 initialized
+2025-07-29 17:01:40,785 - hackthon.logging - INFO - lifespan:56 - Shutting down system...
+2025-07-29 17:01:40,785 - hackthon.logging - INFO - close_connections:881 - All connections closed

@@ -66,7 +66,13 @@ class Config:
     CHUNK_SIZE: int = int(os.getenv("CHUNK_SIZE", "800"))
     CHUNK_OVERLAP: int = int(os.getenv("CHUNK_OVERLAP", "100"))
     MAX_CONTEXT_CHUNKS: int = int(os.getenv("MAX_CONTEXT_CHUNKS", "7"))
-    
+    REDIS_AVAILABLE = False  # Enable/disable Redis caching
+    REDIS_HOST: str = os.getenv("REDIS_HOST", " ")
+    REDIS_URL: str = os.getenv("REDIS_URL", " ")
+    REDIS_PORT : int = int(os.getenv("REDIS_PORT", "6379"))
+    REDIS_PASSWORD : str = os.getenv("REDIS_PASSWORD", " ")
+    REDIS_DB : str= os.getenv("REDIS_DB", "0")
+    REDIS_SSL = os.getenv('REDIS_SSL', 'false').lower() == 'true'
     def __post_init__(self):
         # Filter out None values from API keys
         self.GROQ_API_KEYS = [key for key in self.GROQ_API_KEYS if key]

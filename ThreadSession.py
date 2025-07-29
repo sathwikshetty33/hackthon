@@ -1,52 +1,33 @@
-# enhanced_main_optimized.py - Multi-threaded PDF Q&A with Neo4j Integration and Rate Limiting Fixes
-
-import os
 import asyncio
 import aiohttp
-import fitz  # PyMuPDF
+import fitz  
 import spacy
 from sentence_transformers import SentenceTransformer
-from qdrant_client import QdrantClient
-from qdrant_client.http import models
-from neo4j import GraphDatabase
 from groq import Groq
-import json
 import uuid
-from typing import List, Dict, Any, Optional
+from typing import List, Dict
 import re
-from dataclasses import dataclass, field
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, BackgroundTasks
-from pydantic import BaseModel, HttpUrl
-import uvicorn
-from datetime import datetime
+from fastapi import  HTTPException
 import logging
-import traceback
-from contextlib import asynccontextmanager
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
 from collections import defaultdict
 import time
 import numpy as np
-import multiprocessing
 import hashlib
 from asyncio import Semaphore
 from .configs import *
 from .models import *
-from .quadrantdb import *
+from .vectorDatabase.quadrantdb import *
 from .neo4j import *
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
-
+from .logging import *
+logger = setup_logger()
 # Load environment variables
 load_dotenv()
 
 
-class OptimalMultiThreadPDFQASystem:
+class MultiThreadSessionSystem:
     """Optimal Multi-thread PDF Q&A System with Rate Limiting Fixes"""
     
     def __init__(self):
@@ -67,19 +48,36 @@ class OptimalMultiThreadPDFQASystem:
         self.redis_session = None
         if hasattr(self.config, 'REDIS_AVAILABLE') and self.config.REDIS_AVAILABLE:
             try:
-                redis_config = {
-                    'host': getattr(self.config, 'REDIS_HOST', 'localhost'),
-                    'port': getattr(self.config, 'REDIS_PORT', 6379),
-                    'password': getattr(self.config, 'REDIS_PASSWORD', None),
-                    'db': getattr(self.config, 'REDIS_DB', 0)
-                }
+                # Check for Redis URL first (Upstash, Railway, etc.)
+                redis_url = getattr(self.config, 'REDIS_URL', None)
                 
-                # Import the Redis session class
-                from .redissession import RedisSessionManager
+                if redis_url:
+                    # Cloud Redis connection (Upstash, Railway, etc.)
+                    logger.info("Using Redis URL for cloud connection")
+                    from .RedisSession import RedisSessionManager
+                    
+                    self.redis_session = RedisSessionManager(
+                        host="bursting-elk-44588.upstash.io",
+                        port=6380,
+                        password="Aa4sAAIjcDExYjVhYTNjMWNhNWE0MWNlOTAwZjU2MWVmZmVkM2FjZHAxMA",
+                        ssl=True,
+                        connection_timeout=10  # 10 second timeout instead of 30
+
+                    )
+                else:
+                    # Standard Redis connection
+                    redis_config = {
+                        'host': getattr(self.config, 'REDIS_HOST', 'localhost'),
+                        'port': getattr(self.config, 'REDIS_PORT', 6379),
+                        'password': getattr(self.config, 'REDIS_PASSWORD', None),
+                        'db': getattr(self.config, 'REDIS_DB', 0),
+                        'ssl': getattr(self.config, 'REDIS_SSL', False)
+                    }
+                    
+                    from .RedisSession import RedisSessionManager
+                    self.redis_session = RedisSessionManager(**redis_config)
                 
-                self.redis_session = RedisSessionManager(**redis_config)
-                
-                if self.redis_session.is_available:
+                if self.redis_session and self.redis_session.is_available:
                     logger.info("Redis session manager initialized successfully")
                 else:
                     logger.warning("Redis session manager created but connection failed")

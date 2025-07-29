@@ -31,22 +31,23 @@ import numpy as np
 import multiprocessing
 import hashlib
 from asyncio import Semaphore
-
+from ..configs import *
+from ..models import *
+from .quadrantdb import *
+from ..neo4j import *
+from .baseVectorDb import *
 # Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
-
+from ..logging import *
+logger = setup_logger()
 # Load environment variables
 load_dotenv()
 
 
-class EnhancedQdrantDatabase:
+class EnhancedQdrantDatabase(BaseVectorDatabase):
     """Enhanced Qdrant client with thread-aware storage"""
     
     def __init__(self, url: str, api_key: str):
+        super.__init__()
         self.client = QdrantClient(url=url, api_key=api_key) if api_key else None
         self.collection_name = f"pdf_chunks_{int(time.time())}"
         self.embedding_dim = 768  # for all-mpnet-base-v2

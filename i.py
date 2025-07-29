@@ -32,16 +32,11 @@ import hashlib
 from asyncio import Semaphore
 from .configs import *
 from .models import *
-from .quadrantdb import *
+from .vectorDatabase.quadrantdb import *
 from .neo4j import *
-from .thrader import *
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
-
+from .ThreadSession import *
+from .logging import *
+logger = setup_logger()
 # Load environment variables
 load_dotenv()
 
@@ -56,7 +51,7 @@ qa_system = None
 async def lifespan(app: FastAPI):
     global qa_system
     logger.info("Starting Rate-Limited Multi-Thread PDF Q&A System...")
-    qa_system = OptimalMultiThreadPDFQASystem()
+    qa_system = MultiThreadSessionSystem()
     yield
     logger.info("Shutting down system...")
     if qa_system:
