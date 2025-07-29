@@ -1,0 +1,12 @@
+fastapi
+uvicorn
+aiohttp
+PyMuPDF
+spacy
+sentence-transformers
+qdrant-client
+neo4j
+groq
+python-dotenv
+pydantic
+python-multipart
