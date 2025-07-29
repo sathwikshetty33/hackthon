@@ -4,7 +4,7 @@ import time
 
 
 class BaseVectorDatabase(ABC):
-    """Enhanced Qdrant client with thread-aware storage"""
+    """Enhanced client with thread-aware storage"""
     
     def __init__(self):
         self.client = any

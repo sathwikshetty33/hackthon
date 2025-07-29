@@ -1,41 +1,15 @@
-# enhanced_main_optimized.py - Multi-threaded PDF Q&A with Neo4j Integration and Rate Limiting Fixes
-
-import os
-import asyncio
-import aiohttp
-import fitz  # PyMuPDF
-import spacy
-from sentence_transformers import SentenceTransformer
-from qdrant_client import QdrantClient
-from qdrant_client.http import models
-from groq import Groq
-import json
-import uuid
-from typing import List, Dict, Any, Optional
-import re
-from dataclasses import dataclass, field
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, BackgroundTasks
-from pydantic import BaseModel, HttpUrl
+from fastapi import FastAPI, HTTPException
 import uvicorn
 from datetime import datetime
-import logging
-import traceback
-from contextlib import asynccontextmanager
-from concurrent.futures import ThreadPoolExecutor, as_completed
-import threading
-from collections import defaultdict
-import time
-import numpy as np
 import multiprocessing
-import hashlib
-from asyncio import Semaphore
-from .configs import *
-from .models import *
-from .vectorDatabase.quadrantdb import *
-from .graphDatabase.neo4j import *
-from .ThreadSession import *
-from .logging import *
+from hackthon.configs import *
+from hackthon.models import *
+from hackthon.vectorDatabase.quadrantdb import *
+from hackthon.graphDatabase.neo4j import *
+from hackthon.SessionManager.ThreadSession import *
+from hackthon.llogging import *
+from contextlib import asynccontextmanager
 logger = setup_logger()
 # Load environment variables
 load_dotenv()

@@ -1,43 +1,12 @@
-# enhanced_main_optimized.py - Multi-threaded PDF Q&A with Neo4j Integration and Rate Limiting Fixes
-
-import os
-import asyncio
-import aiohttp
-import fitz  # PyMuPDF
-import spacy
-from sentence_transformers import SentenceTransformer
 from qdrant_client import QdrantClient
 from qdrant_client.http import models
-from graphDatabase.neo4j import GraphDatabase
-from groq import Groq
-import json
-import uuid
-from typing import List, Dict, Any, Optional
-import re
-from dataclasses import dataclass, field
+from typing import List, Dict
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, BackgroundTasks
-from pydantic import BaseModel, HttpUrl
-import uvicorn
-from datetime import datetime
-import logging
-import traceback
-from contextlib import asynccontextmanager
-from concurrent.futures import ThreadPoolExecutor, as_completed
-import threading
 from collections import defaultdict
 import time
-import numpy as np
-import multiprocessing
-import hashlib
-from asyncio import Semaphore
-from ..configs import *
-from ..models import *
-from .quadrantdb import *
-from ..graphDatabase.neo4j import *
-from .baseVectorDb import *
+from hackthon.vectorDatabase.baseVectorDb import *
 # Configure logging
-from ..logging import *
+from hackthon.llogging import *
 logger = setup_logger()
 # Load environment variables
 load_dotenv()
@@ -47,7 +16,7 @@ class EnhancedQdrantDatabase(BaseVectorDatabase):
     """Enhanced Qdrant client with thread-aware storage"""
     
     def __init__(self, url: str, api_key: str):
-        super.__init__()
+        super().__init__()
         self.client = QdrantClient(url=url, api_key=api_key) if api_key else None
         self.collection_name = f"pdf_chunks_{int(time.time())}"
         self.embedding_dim = 768  # for all-mpnet-base-v2

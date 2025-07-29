@@ -1,0 +1,46 @@
+2025-07-29 17:57:10,651 - hackthon.llogging - INFO - lifespan:53 - Starting Rate-Limited Multi-Thread PDF Q&A System...
+2025-07-29 17:57:10,652 - hackthon.llogging - INFO - _validate_config:107 - System configured with 3 threads using 3 API keys
+2025-07-29 17:57:10,652 - hackthon.llogging - INFO - _initialize_components:111 - Initializing Rate-Limited Multi-Thread PDF Q&A System (3 threads)...
+2025-07-29 17:57:10,652 - hackthon.llogging - WARNING - _initialize_components:118 - spaCy model not found
+2025-07-29 17:57:14,037 - hackthon.llogging - INFO - _initialize_components:128 - Embedding model loaded
+2025-07-29 17:57:15,748 - hackthon.llogging - INFO - _setup_collection:38 - Qdrant collection 'pdf_chunks_1753811834' created
+2025-07-29 17:57:15,748 - hackthon.llogging - INFO - _initialize_components:138 - Enhanced Qdrant database initialized
+2025-07-29 17:57:15,748 - hackthon.llogging - INFO - __init__:15 - Neo4j disabled due to connection issues
+2025-07-29 17:57:15,749 - hackthon.llogging - INFO - _initialize_components:149 - All components initialized successfully!
+2025-07-29 17:57:15,749 - hackthon.llogging - INFO - _setup_thread_pools:155 - Thread pools configured: 5 chunking, 3 querying
+2025-07-29 17:57:15,749 - hackthon.llogging - INFO - __init__:93 - Redis caching disabled in config
+2025-07-29 17:57:15,788 - hackthon.llogging - INFO - __init__:100 - Groq client 1 initialized
+2025-07-29 17:57:15,834 - hackthon.llogging - INFO - __init__:100 - Groq client 2 initialized
+2025-07-29 17:57:15,883 - hackthon.llogging - INFO - __init__:100 - Groq client 3 initialized
+2025-07-29 17:58:29,564 - hackthon.llogging - INFO - lifespan:56 - Shutting down system...
+2025-07-29 17:58:29,565 - hackthon.llogging - INFO - close:28 - Neo4j connection close (was disabled)
+2025-07-29 17:58:29,565 - hackthon.llogging - INFO - close_connections:881 - All connections closed
+2025-07-29 18:05:31,055 - hackthon.llogging - INFO - lifespan:27 - Starting Rate-Limited Multi-Thread PDF Q&A System...
+2025-07-29 18:05:31,055 - hackthon.llogging - INFO - __post_init__:48 - Configured 3 Groq API keys for 3 threads
+2025-07-29 18:05:31,055 - hackthon.llogging - INFO - _validate_config:107 - System configured with 3 threads using 3 API keys
+2025-07-29 18:05:31,055 - hackthon.llogging - INFO - _initialize_components:111 - Initializing Rate-Limited Multi-Thread PDF Q&A System (3 threads)...
+2025-07-29 18:05:31,056 - hackthon.llogging - WARNING - _initialize_components:118 - spaCy model not found
+2025-07-29 18:05:34,344 - hackthon.llogging - INFO - _initialize_components:128 - Embedding model loaded
+2025-07-29 18:05:35,561 - hackthon.llogging - INFO - _setup_collection:38 - Qdrant collection 'pdf_chunks_1753812334' created
+2025-07-29 18:05:35,561 - hackthon.llogging - INFO - _initialize_components:138 - Enhanced Qdrant database initialized
+2025-07-29 18:05:35,561 - hackthon.llogging - INFO - __init__:15 - Neo4j disabled due to connection issues
+2025-07-29 18:05:35,562 - hackthon.llogging - INFO - _initialize_components:149 - All components initialized successfully!
+2025-07-29 18:05:35,562 - hackthon.llogging - INFO - _setup_thread_pools:155 - Thread pools configured: 5 chunking, 3 querying
+2025-07-29 18:05:35,562 - hackthon.llogging - INFO - __init__:93 - Redis caching disabled in config
+2025-07-29 18:05:35,604 - hackthon.llogging - INFO - __init__:100 - Groq client 1 initialized
+2025-07-29 18:05:35,648 - hackthon.llogging - INFO - __init__:100 - Groq client 2 initialized
+2025-07-29 18:05:35,696 - hackthon.llogging - INFO - __init__:100 - Groq client 3 initialized
+2025-07-29 18:06:42,600 - hackthon.llogging - INFO - hackrx_run:46 - HackRX endpoint: Processing 10 questions with rate limiting
+2025-07-29 18:06:42,601 - hackthon.llogging - INFO - process_questions_rate_limited:751 - Processing 10 questions with rate limiting and caching...
+2025-07-29 18:06:42,601 - hackthon.llogging - INFO - download_pdf:192 - Downloading PDF from: https://hackrx.blob.core.windows.net/assets/policy.pdf?sv=2023-01-03&st=2025-07-04T09%3A11%3A24Z&se=2027-07-05T09%3A11%3A00Z&sr=b&sp=r&sig=N4a9OU0w0QXO6AOIBiu4bpl7AXvEZogeT%2FjUHNO7HzQ%3D
+2025-07-29 18:06:43,195 - hackthon.llogging - INFO - download_pdf:203 - PDF cached: 704602 bytes
+2025-07-29 18:06:43,196 - hackthon.llogging - INFO - parse_pdf:211 - Parsing PDF with enhanced structure extraction...
+2025-07-29 18:06:54,310 - hackthon.llogging - INFO - parse_pdf:239 - PDF parsed: 25 pages with enhanced structure
+2025-07-29 18:06:54,310 - hackthon.llogging - INFO - optimal_multi_thread_chunking:298 - Creating smart chunks using 5 threads...
+2025-07-29 18:06:54,314 - hackthon.llogging - INFO - process_page_group_optimal:395 - Thread 0: Created 63 optimal chunks
+2025-07-29 18:06:54,319 - hackthon.llogging - INFO - process_page_group_optimal:395 - Thread 1: Created 58 optimal chunks
+2025-07-29 18:06:54,328 - hackthon.llogging - INFO - process_page_group_optimal:395 - Thread 3: Created 50 optimal chunks
+2025-07-29 18:06:54,331 - hackthon.llogging - INFO - process_page_group_optimal:395 - Thread 2: Created 62 optimal chunks
+2025-07-29 18:06:54,337 - hackthon.llogging - INFO - process_page_group_optimal:395 - Thread 4: Created 32 optimal chunks
+2025-07-29 18:06:54,338 - hackthon.llogging - INFO - optimal_multi_thread_chunking:413 - Total optimal chunks created: 265
+2025-07-29 18:06:54,339 - hackthon.llogging - INFO - create_embeddings_and_store:437 - Creating embeddings and storing in databases...

@@ -1,9 +1,6 @@
-# redis_session.py - Fixed Redis Session Manager for PDF Q&A System
-
 import redis
 import json
 import pickle
-import logging
 from typing import List, Dict, Any, Optional
 import hashlib
 import time
@@ -11,8 +8,8 @@ from datetime import datetime, timedelta
 import gzip
 from urllib.parse import urlparse, quote_plus
 import threading
-
-logger = logging.getLogger(__name__)
+from hackthon.llogging import *
+logger = setup_logger()
 
 class RedisSessionManager:
     """Redis Session Manager for caching chunks and embeddings with Upstash support"""
