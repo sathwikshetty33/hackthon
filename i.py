@@ -1,4 +1,5 @@
-# main.py - Ultra-Enhanced PDF Q&A FastAPI System
+# enhanced_main_optimized.py - Multi-threaded PDF Q&A with Neo4j Integration and Rate Limiting Fixes
+
 import os
 import asyncio
 import aiohttp
@@ -11,9 +12,9 @@ from neo4j import GraphDatabase
 from groq import Groq
 import json
 import uuid
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Optional
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, BackgroundTasks
 from pydantic import BaseModel, HttpUrl
@@ -22,13 +23,14 @@ from datetime import datetime
 import logging
 import traceback
 from contextlib import asynccontextmanager
-import numpy as np
-from sklearn.metrics.pairwise import cosine_similarity
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
-from functools import lru_cache
-import hashlib
 from collections import defaultdict
+import time
+import numpy as np
+import multiprocessing
+import hashlib
+from asyncio import Semaphore
 
 # Configure logging
 logging.basicConfig(
@@ -53,713 +55,935 @@ class DetailedAnswerResponse(BaseModel):
 
 @dataclass
 class Config:
-    # API Keys from environment
-    GROQ_API_KEY: str = os.getenv("GROQ_API_KEY")
+    # System configuration - REDUCED for rate limiting
+    TOTAL_THREADS: int = min(3, max(1, multiprocessing.cpu_count() - 1))  # Max 3 threads
+    CHUNK_THREADS: int = max(1, (multiprocessing.cpu_count() - 1) // 2)  # Half for chunking
+    QUERY_THREADS: int = min(3, max(1, multiprocessing.cpu_count() - 1))  # Max 3 concurrent queries
+    
+    # Multiple Groq API Keys (one per thread) - FIXED
+    GROQ_API_KEYS: List[str] = field(default_factory=lambda: [
+        os.getenv(f"GROQ_API_KEY_{i+1}", os.getenv("GROQ_API_KEY"))
+        for i in range(min(3, max(1, multiprocessing.cpu_count() - 1)))  # Max 3 API keys
+    ])
+    
+    # Database settings
     QDRANT_URL: str = os.getenv("QDRANT_URL", "http://localhost:6333")
     QDRANT_API_KEY: str = os.getenv("QDRANT_API_KEY")
     NEO4J_URI: str = os.getenv("NEO4J_URI", "bolt://localhost:7687")
     NEO4J_USERNAME: str = os.getenv("NEO4J_USERNAME", "neo4j")
     NEO4J_PASSWORD: str = os.getenv("NEO4J_PASSWORD")
     
-    # Optimized model settings for speed and accuracy
-    EMBEDDING_MODEL: str = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
-    CHUNK_SIZE: int = int(os.getenv("CHUNK_SIZE", "600"))  # Optimized for balance
-    CHUNK_OVERLAP: int = int(os.getenv("CHUNK_OVERLAP", "80"))
-    MAX_CONTEXT_CHUNKS: int = int(os.getenv("MAX_CONTEXT_CHUNKS", "5"))  # Focused context
-    SIMILARITY_THRESHOLD: float = float(os.getenv("SIMILARITY_THRESHOLD", "0.3"))
+    # Model settings
+    EMBEDDING_MODEL: str = os.getenv("EMBEDDING_MODEL", "sentence-transformers/all-mpnet-base-v2")
+    CHUNK_SIZE: int = int(os.getenv("CHUNK_SIZE", "800"))
+    CHUNK_OVERLAP: int = int(os.getenv("CHUNK_OVERLAP", "100"))
+    MAX_CONTEXT_CHUNKS: int = int(os.getenv("MAX_CONTEXT_CHUNKS", "7"))
     
-    # Performance settings
-    MAX_WORKERS: int = int(os.getenv("MAX_WORKERS", "4"))
-    BATCH_SIZE: int = int(os.getenv("BATCH_SIZE", "16"))
-    CACHE_SIZE: int = int(os.getenv("CACHE_SIZE", "128"))
+    def __post_init__(self):
+        # Filter out None values from API keys
+        self.GROQ_API_KEYS = [key for key in self.GROQ_API_KEYS if key]
+        if not self.GROQ_API_KEYS:
+            raise ValueError("At least one GROQ_API_KEY is required")
+        logger.info(f"Configured {len(self.GROQ_API_KEYS)} Groq API keys for {self.TOTAL_THREADS} threads")
 
-class UltraEnhancedPDFQASystem:
+class EnhancedQdrantDatabase:
+    """Enhanced Qdrant client with thread-aware storage"""
+    
+    def __init__(self, url: str, api_key: str):
+        self.client = QdrantClient(url=url, api_key=api_key) if api_key else None
+        self.collection_name = f"pdf_chunks_{int(time.time())}"
+        self.embedding_dim = 768  # for all-mpnet-base-v2
+        self._setup_collection()
+    
+    def _setup_collection(self):
+        """Setup Qdrant collection with thread metadata"""
+        if not self.client:
+            return
+        
+        try:
+            self.client.create_collection(
+                collection_name=self.collection_name,
+                vectors_config=models.VectorParams(
+                    size=self.embedding_dim,
+                    distance=models.Distance.COSINE
+                )
+            )
+            logger.info(f"Qdrant collection '{self.collection_name}' created")
+        except Exception as e:
+            logger.warning(f"Collection may already exist: {e}")
+    
+    def add_chunks_by_thread(self, chunks: List[Dict], thread_id: int):
+        """Add chunks with thread-specific metadata"""
+        if not self.client:
+            return
+        
+        try:
+            points = []
+            for chunk in chunks:
+                # FIXED: Use pure UUID instead of prefixed string
+                point_id = chunk['id']  # This is already a valid UUID
+                
+                points.append(
+                    models.PointStruct(
+                        id=point_id,
+                        vector=chunk['embedding'],
+                        payload={
+                            'text': chunk['text'],
+                            'page_number': chunk['page_number'],
+                            'section': chunk['section'],
+                            'thread_id': thread_id,  # Thread info stored in payload
+                            'chunk_id': chunk['id'],
+                            'word_count': chunk['metadata']['word_count'],
+                            'chunk_hash': chunk.get('chunk_hash', ''),
+                            'semantic_keywords': chunk.get('keywords', [])
+                        }
+                    )
+                )
+            
+            self.client.upsert(
+                collection_name=self.collection_name,
+                points=points
+            )
+            logger.info(f"Thread {thread_id}: Added {len(chunks)} chunks to Qdrant")
+        except Exception as e:
+            logger.error(f"Error adding chunks to Qdrant: {e}")
+    
+    def search_with_thread_distribution(self, query_vector: List[float], top_k: int = 8, num_threads: int = 3) -> List[List[Dict]]:
+        """Search and distribute results across threads"""
+        if not self.client:
+            return [[] for _ in range(num_threads)]
+        
+        try:
+            # Search with higher limit
+            search_results = self.client.search(
+                collection_name=self.collection_name,
+                query_vector=query_vector,
+                limit=top_k * 2,
+                with_payload=True
+            )
+            
+            # Group by thread_id and distribute evenly
+            thread_groups = defaultdict(list)
+            for result in search_results:
+                thread_id = result.payload.get('thread_id', 0)
+                thread_groups[thread_id].append({
+                    'text': result.payload['text'],
+                    'page_number': result.payload['page_number'],
+                    'section': result.payload['section'],
+                    'similarity_score': float(result.score),
+                    'chunk_hash': result.payload.get('chunk_hash', ''),
+                    'metadata': {
+                        'page': result.payload['page_number'],
+                        'section': result.payload['section'],
+                        'thread_id': thread_id,
+                        'keywords': result.payload.get('semantic_keywords', [])
+                    }
+                })
+            
+            # Distribute results evenly across threads
+            distributed_results = []
+            chunks_per_thread = max(1, top_k // num_threads)
+            
+            for thread_id in range(num_threads):
+                if thread_id in thread_groups:
+                    thread_chunks = sorted(
+                        thread_groups[thread_id],
+                        key=lambda x: x['similarity_score'],
+                        reverse=True
+                    )[:chunks_per_thread]
+                    distributed_results.append(thread_chunks)
+                else:
+                    # If no chunks for this thread, distribute from other threads
+                    all_remaining = []
+                    for tid, chunks in thread_groups.items():
+                        all_remaining.extend(chunks)
+                    all_remaining.sort(key=lambda x: x['similarity_score'], reverse=True)
+                    distributed_results.append(all_remaining[:chunks_per_thread])
+            
+            return distributed_results
+            
+        except Exception as e:
+            logger.error(f"Error searching Qdrant: {e}")
+            return [[] for _ in range(num_threads)]
+
+class Neo4jKnowledgeGraph:
+    """Neo4j integration for document relationships and semantic enhancement"""
+    
+    def __init__(self, uri: str, username: str, password: str):
+        # DISABLED Neo4j temporarily due to connection issues
+        self.driver = None
+        logger.info("Neo4j disabled due to connection issues")
+    
+    def store_document_structure(self, chunks: List[Dict], document_id: str):
+        """Store document structure and relationships in Neo4j - DISABLED"""
+        logger.info("Neo4j storage skipped (disabled)")
+        return
+    
+    def get_enhanced_context(self, chunk_ids: List[str], question: str) -> Dict[str, Any]:
+        """Get enhanced context using Neo4j relationships - DISABLED"""
+        return {'related_chunks': [], 'context_summary': ''}
+    
+    def close(self):
+        """Close Neo4j connection"""
+        logger.info("Neo4j connection close (was disabled)")
+
+class OptimalMultiThreadPDFQASystem:
+    """Optimal Multi-thread PDF Q&A System with Rate Limiting Fixes"""
+    
     def __init__(self):
         self.config = Config()
         self._validate_config()
         self._initialize_components()
-        self._setup_caching()
-        self.thread_pool = ThreadPoolExecutor(max_workers=self.config.MAX_WORKERS)
+        self._setup_thread_pools()
         self._document_cache = {}
-        self._embedding_cache = {}
         self.lock = threading.Lock()
-
+        self.groq_clients = []
+        
+        # RATE LIMITING FIXES - UPDATED VALUES
+        self.request_semaphore = Semaphore(1)  # REDUCED: Only 1 concurrent request
+        self.last_request_time = {}  # Track last request time per API key
+        self.min_request_interval = 4.0  # INCREASED: 4 seconds between requests per key
+        
+        # Initialize multiple Groq clients
+        for i, api_key in enumerate(self.config.GROQ_API_KEYS):
+            client = Groq(api_key=api_key)
+            self.groq_clients.append(client)
+            self.last_request_time[i] = 0
+            logger.info(f"Groq client {i+1} initialized")
+    
     def _validate_config(self):
-        """Validate that all required environment variables are set"""
-        required_vars = [("GROQ_API_KEY", self.config.GROQ_API_KEY)]
+        """Validate configuration"""
+        if not self.config.GROQ_API_KEYS:
+            raise ValueError("At least one GROQ_API_KEY is required")
         
-        missing_vars = []
-        for var_name, var_value in required_vars:
-            if not var_value:
-                missing_vars.append(var_name)
-        
-        if missing_vars:
-            logger.error(f"Missing environment variables: {', '.join(missing_vars)}")
-            raise ValueError(f"Missing required environment variables: {missing_vars}")
-        
-        logger.info("All required environment variables loaded successfully")
-
-    def _setup_caching(self):
-        """Setup LRU caches for performance"""
-        # Cache for embeddings
-        self.get_embedding = lru_cache(maxsize=self.config.CACHE_SIZE)(self._get_embedding_uncached)
-        # Cache for document parsing
-        self.parse_pdf_cached = lru_cache(maxsize=32)(self._parse_pdf_uncached)
-
+        logger.info(f"System configured with {self.config.TOTAL_THREADS} threads using {len(self.config.GROQ_API_KEYS)} API keys")
+    
     def _initialize_components(self):
-        """Initialize all components with performance optimizations"""
-        logger.info("Initializing Ultra-Enhanced PDF Q&A System...")
+        """Initialize all components (enhanced from main.py)"""
+        logger.info(f"Initializing Rate-Limited Multi-Thread PDF Q&A System ({self.config.TOTAL_THREADS} threads)...")
         
-        # Load spaCy model with optimizations
+        # Load spaCy model
         try:
-            self.nlp = spacy.load("en_core_web_sm", disable=["parser", "ner"])  # Disable unused components
-            logger.info("spaCy model loaded with optimizations")
+            self.nlp = spacy.load("en_core_web_sm")
+            logger.info("spaCy model loaded")
         except OSError:
-            logger.warning("spaCy model not found, using fallback text processing")
+            logger.warning("spaCy model not found")
             self.nlp = None
         
-        # Initialize embedding model with optimizations
-        logger.info("Loading optimized sentence transformer...")
+        # Initialize embedding model
         try:
-            # Use faster model for better speed/accuracy balance
-            self.embedding_model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
-            self.embedding_model.eval()  # Set to eval mode
+            self.embedding_model = SentenceTransformer('sentence-transformers/all-mpnet-base-v2')
+            self.embedding_dim = 768
+        except:
+            self.embedding_model = SentenceTransformer(self.config.EMBEDDING_MODEL)
             self.embedding_dim = 384
-        except Exception as e:
-            logger.error(f"Failed to load embedding model: {e}")
-            raise
-        logger.info("Embedding model loaded with optimizations")
+        logger.info("Embedding model loaded")
         
-        # Initialize Groq client with retry logic
-        logger.info("Connecting to Groq API...")
-        self.groq_client = Groq(api_key=self.config.GROQ_API_KEY)
-        logger.info("Groq client initialized")
-        
-        # Initialize optional components
-        self._initialize_optional_components()
-        
-        logger.info("All components initialized successfully!")
-
-    def _initialize_optional_components(self):
-        """Initialize optional Qdrant and Neo4j components"""
-        # Initialize Qdrant client (optional)
-        self.qdrant_client = None
+        # Initialize Enhanced Qdrant
+        self.qdrant_db = None
         if self.config.QDRANT_URL and self.config.QDRANT_API_KEY:
             try:
-                logger.info("Connecting to Qdrant...")
-                self.qdrant_client = QdrantClient(
+                self.qdrant_db = EnhancedQdrantDatabase(
                     url=self.config.QDRANT_URL,
-                    api_key=self.config.QDRANT_API_KEY,
+                    api_key=self.config.QDRANT_API_KEY
                 )
-                logger.info("Qdrant client initialized")
+                logger.info("Enhanced Qdrant database initialized")
             except Exception as e:
-                logger.warning(f"Qdrant connection failed: {e}. Using in-memory search.")
+                logger.warning(f"Qdrant connection failed: {e}")
         
-        # Initialize Neo4j driver (optional)
-        self.neo4j_driver = None
-        if self.config.NEO4J_URI and self.config.NEO4J_PASSWORD:
+        # Initialize Neo4j Knowledge Graph (DISABLED)
+        self.neo4j_kg = Neo4jKnowledgeGraph(
+            uri=self.config.NEO4J_URI,
+            username=self.config.NEO4J_USERNAME,
+            password=self.config.NEO4J_PASSWORD
+        )
+        
+        logger.info("All components initialized successfully!")
+    
+    def _setup_thread_pools(self):
+        """Setup optimized thread pools"""
+        self.chunk_executor = ThreadPoolExecutor(max_workers=self.config.CHUNK_THREADS)
+        self.query_executor = ThreadPoolExecutor(max_workers=self.config.QUERY_THREADS)
+        logger.info(f"Thread pools configured: {self.config.CHUNK_THREADS} chunking, {self.config.QUERY_THREADS} querying")
+    
+    async def throttled_groq_request(self, groq_client, api_key_index: int, **kwargs):
+        """Throttled Groq API request with rate limiting"""
+        async with self.request_semaphore:
+            # Wait if needed to respect rate limits per API key
+            now = time.time()
+            elapsed = now - self.last_request_time.get(api_key_index, 0)
+            if elapsed < self.min_request_interval:
+                wait_time = self.min_request_interval - elapsed
+                logger.info(f"Rate limiting: waiting {wait_time:.2f}s for API key {api_key_index + 1}")
+                await asyncio.sleep(wait_time)
+            
             try:
-                logger.info("Connecting to Neo4j...")
-                self.neo4j_driver = GraphDatabase.driver(
-                    self.config.NEO4J_URI,
-                    auth=(self.config.NEO4J_USERNAME, self.config.NEO4J_PASSWORD)
-                )
-                logger.info("Neo4j driver initialized")
+                response = groq_client.chat.completions.create(**kwargs)
+                self.last_request_time[api_key_index] = time.time()
+                return response
             except Exception as e:
-                logger.warning(f"Neo4j connection failed: {e}. Using basic search.")
-
-    def _get_document_hash(self, url: str) -> str:
-        """Generate hash for document caching"""
-        return hashlib.md5(url.encode()).hexdigest()
-
+                if "429" in str(e):
+                    # Exponential backoff for rate limits
+                    backoff_time = min(60, 5 * (2 ** api_key_index))
+                    logger.warning(f"Rate limit hit, backing off {backoff_time}s")
+                    await asyncio.sleep(backoff_time)
+                    response = groq_client.chat.completions.create(**kwargs)
+                    self.last_request_time[api_key_index] = time.time()
+                    return response
+                raise e
+    
     async def download_pdf(self, url: str) -> bytes:
-        """Download PDF from URL with caching and optimization"""
-        doc_hash = self._get_document_hash(url)
+        """Download PDF with enhanced caching"""
+        doc_hash = hashlib.md5(url.encode()).hexdigest()
         
-        # Check cache first
-        if doc_hash in self._document_cache:
-            logger.info(f"Using cached PDF for: {url}")
-            return self._document_cache[doc_hash]
+        with self.lock:
+            if doc_hash in self._document_cache:
+                logger.info(f"Using cached PDF: {doc_hash[:8]}...")
+                return self._document_cache[doc_hash]
         
         logger.info(f"Downloading PDF from: {url}")
         try:
-            timeout = aiohttp.ClientTimeout(total=120, connect=30)
+            timeout = aiohttp.ClientTimeout(total=120)
             async with aiohttp.ClientSession(timeout=timeout) as session:
                 async with session.get(str(url)) as response:
-                    if response.status != 200:
-                        raise HTTPException(
-                            status_code=400, 
-                            detail=f"Failed to download PDF: HTTP {response.status}"
-                        )
-                    
+                    response.raise_for_status()
                     content = await response.read()
                     
-                    # Validate PDF content
-                    if not content.startswith(b'%PDF'):
-                        raise HTTPException(
-                            status_code=400, 
-                            detail="Downloaded file is not a valid PDF"
-                        )
+                    with self.lock:
+                        self._document_cache[doc_hash] = content
                     
-                    # Cache the document
-                    self._document_cache[doc_hash] = content
-                    logger.info(f"PDF downloaded and cached successfully ({len(content)} bytes)")
+                    logger.info(f"PDF cached: {len(content)} bytes")
                     return content
-                    
-        except aiohttp.ClientError as e:
-            logger.error(f"Network error downloading PDF: {e}")
-            raise HTTPException(status_code=400, detail=f"Network error: {str(e)}")
         except Exception as e:
-            logger.error(f"Failed to download PDF: {e}")
-            raise HTTPException(status_code=400, detail=f"Failed to download PDF: {str(e)}")
-
-    def _parse_pdf_uncached(self, pdf_hash: str, pdf_bytes: bytes) -> List[Dict]:
-        """Parse PDF implementation for caching"""
-        return self._parse_pdf_content(pdf_bytes)
-
+            logger.error(f"PDF download failed: {e}")
+            raise HTTPException(status_code=400, detail=str(e))
+    
     def parse_pdf(self, pdf_bytes: bytes) -> List[Dict]:
-        """Parse PDF with caching"""
-        pdf_hash = hashlib.md5(pdf_bytes).hexdigest()
-        return self.parse_pdf_cached(pdf_hash, pdf_bytes)
-
-    def _parse_pdf_content(self, pdf_bytes: bytes) -> List[Dict]:
-        """Parse PDF and extract text with enhanced metadata and speed optimizations"""
-        logger.info("Parsing PDF...")
+        """Parse PDF with enhanced structure extraction"""
+        logger.info("Parsing PDF with enhanced structure extraction...")
         try:
             doc = fitz.open(stream=pdf_bytes, filetype="pdf")
             pages = []
             
             for page_num in range(len(doc)):
                 page = doc[page_num]
+                text = page.get_text()
                 
-                # Get text more efficiently
-                text = page.get_text("text")  # Use plain text extraction for speed
-                
-                # Skip empty pages
-                if not text.strip() or len(text.strip()) < 50:
+                if not text.strip():
                     continue
                 
-                # Fast structure analysis
-                sections = self._fast_extract_sections(text)
-                tables = self._fast_extract_tables(page)
+                # Enhanced structure extraction
+                blocks = page.get_text("dict")
+                sections = self._extract_sections(blocks)
+                tables = self._extract_tables(page)
+                lists = self._extract_lists(text)
                 
                 pages.append({
                     'page_number': page_num + 1,
                     'text': text,
                     'sections': sections,
                     'tables': tables,
-                    'word_count': len(text.split()),
-                    'char_count': len(text)
+                    'lists': lists,
+                    'word_count': len(text.split())
                 })
             
             doc.close()
-            logger.info(f"PDF parsed successfully ({len(pages)} pages)")
+            logger.info(f"PDF parsed: {len(pages)} pages with enhanced structure")
             return pages
-            
         except Exception as e:
-            logger.error(f"Failed to parse PDF: {e}")
-            raise HTTPException(status_code=400, detail=f"Failed to parse PDF: {str(e)}")
-
-    def _fast_extract_sections(self, text: str) -> List[str]:
-        """Fast section extraction using regex patterns"""
+            logger.error(f"PDF parsing failed: {e}")
+            raise HTTPException(status_code=400, detail=str(e))
+    
+    def _extract_sections(self, blocks_dict) -> List[str]:
+        """Extract sections"""
         sections = []
-        lines = text.split('\n')
+        for block in blocks_dict.get("blocks", []):
+            if block.get("type") == 0:  # Text block
+                for line in block.get("lines", []):
+                    for span in line.get("spans", []):
+                        text = span.get("text", "").strip()
+                        size = span.get("size", 0)
+                        flags = span.get("flags", 0)
+                        
+                        is_bold = flags & 2**4
+                        is_large = size > 12
+                        is_title_case = text.istitle() or text.isupper()
+                        is_reasonable_length = 5 < len(text) < 200
+                        
+                        if (is_reasonable_length and
+                            (is_bold or is_large or is_title_case) and
+                            not text.endswith('.') and
+                            len(text.split()) < 15):
+                            sections.append(text)
         
-        for line in lines:
-            line = line.strip()
-            # Quick heuristics for section headers
-            if (len(line) > 5 and len(line) < 150 and
-                (line.isupper() or 
-                 re.match(r'^\d+\.?\s+[A-Z]', line) or
-                 re.match(r'^[A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,5}:?\s*$', line))):
-                sections.append(line)
-        
-        return sections[:10] if sections else ["Document Content"]  # Limit sections
-
-    def _fast_extract_tables(self, page) -> List[Dict]:
-        """Fast table extraction with limits"""
+        return sections if sections else ["Document Content"]
+    
+    def _extract_tables(self, page) -> List[Dict]:
+        """Extract tables"""
         tables = []
         try:
             table_data = page.find_tables()
-            for i, table in enumerate(table_data[:3]):  # Limit to 3 tables per page
-                extracted = table.extract()
-                if extracted and len(extracted) > 1:
+            for i, table in enumerate(table_data):
+                if table.extract():
                     tables.append({
                         'table_id': i,
-                        'rows': len(extracted),
-                        'cols': len(extracted[0]) if extracted else 0
+                        'data': table.extract()[:5]
                     })
         except:
             pass
         return tables
-
-    def optimized_chunk_document(self, pages: List[Dict]) -> List[Dict]:
-        """Create optimized semantic chunks with better performance"""
-        logger.info("Creating optimized document chunks...")
-        chunks = []
+    
+    def _extract_lists(self, text: str) -> List[str]:
+        """Extract lists"""
+        lists = []
+        lines = text.split('\n')
+        for line in lines:
+            line = line.strip()
+            if (re.match(r'^[•·▪▫◦‣⁃]\s+', line) or
+                re.match(r'^\d+\.\s+', line) or
+                re.match(r'^[a-zA-Z]\.\s+', line)):
+                lists.append(line)
+        return lists
+    
+    def optimal_multi_thread_chunking(self, pages: List[Dict]) -> List[Dict]:
+        """Optimal multi-thread chunking using reduced threads"""
+        logger.info(f"Creating smart chunks using {self.config.CHUNK_THREADS} threads...")
         
-        for page in pages:
-            text = page['text']
-            page_num = page['page_number']
-            sections = page['sections']
+        # Distribute pages optimally across threads
+        pages_per_thread = max(1, len(pages) // self.config.CHUNK_THREADS)
+        page_groups = [
+            pages[i:i + pages_per_thread]
+            for i in range(0, len(pages), pages_per_thread)
+        ]
+        
+        # Ensure we don't exceed available threads
+        while len(page_groups) > self.config.CHUNK_THREADS:
+            page_groups[-2].extend(page_groups[-1])
+            page_groups.pop()
+        
+        def process_page_group_optimal(group_pages: List[Dict], thread_id: int) -> List[Dict]:
+            """Optimal chunking for page group"""
+            thread_chunks = []
             
-            # Use more efficient chunking
-            current_section = sections[0] if sections else "Document Content"
-            
-            # Split by double newlines and periods for better semantic boundaries
-            sentences = re.split(r'[.!?]+\s*(?=\n|\s[A-Z])', text)
-            
-            current_chunk = ""
-            chunk_id = 0
-            
-            for sentence in sentences:
-                sentence = sentence.strip()
-                if len(sentence) < 20:  # Skip very short sentences
-                    continue
+            for page in group_pages:
+                text = page['text']
+                page_num = page['page_number']
+                sections = page['sections']
+                current_section = sections[0] if sections else "Document Content"
                 
-                # Check if adding sentence exceeds chunk size
-                if len(current_chunk) + len(sentence) > self.config.CHUNK_SIZE and current_chunk:
-                    # Create chunk
-                    chunks.append({
-                        'id': f"{page_num}_{chunk_id}",
+                # Smart paragraph-based chunking
+                paragraphs = re.split(r'\n\s*\n', text)
+                current_chunk = ""
+                chunk_sentences = []
+                
+                for paragraph in paragraphs:
+                    paragraph = paragraph.strip()
+                    if not paragraph:
+                        continue
+                    
+                    sentences = re.split(r'[.!?]+', paragraph)
+                    for sentence in sentences:
+                        sentence = sentence.strip()
+                        if not sentence or len(sentence) < 10:
+                            continue
+                        
+                        potential_chunk = current_chunk + " " + sentence
+                        if len(potential_chunk) > self.config.CHUNK_SIZE and current_chunk:
+                            # Create chunk with enhanced metadata
+                            chunk_hash = hashlib.md5(current_chunk.encode()).hexdigest()[:16]
+                            keywords = self._extract_keywords(current_chunk)
+                            
+                            thread_chunks.append({
+                                'id': str(uuid.uuid4()),
+                                'text': current_chunk.strip(),
+                                'page_number': page_num,
+                                'section': current_section,
+                                'sentence_count': len(chunk_sentences),
+                                'thread_id': thread_id,
+                                'chunk_hash': chunk_hash,
+                                'keywords': keywords,
+                                'avg_similarity': 0.5,
+                                'metadata': {
+                                    'source': 'pdf',
+                                    'page': page_num,
+                                    'section': current_section,
+                                    'word_count': len(current_chunk.split()),
+                                    'thread_id': thread_id
+                                }
+                            })
+                            
+                            # Start new chunk with smart overlap
+                            overlap_sentences = chunk_sentences[-2:] if len(chunk_sentences) >= 2 else chunk_sentences
+                            current_chunk = " ".join(overlap_sentences) + " " + sentence
+                            chunk_sentences = overlap_sentences + [sentence]
+                        else:
+                            current_chunk = potential_chunk
+                            chunk_sentences.append(sentence)
+                
+                # Add remaining chunk
+                if current_chunk.strip():
+                    chunk_hash = hashlib.md5(current_chunk.encode()).hexdigest()[:16]
+                    keywords = self._extract_keywords(current_chunk)
+                    
+                    thread_chunks.append({
+                        'id': str(uuid.uuid4()),
                         'text': current_chunk.strip(),
                         'page_number': page_num,
                         'section': current_section,
-                        'word_count': len(current_chunk.split()),
+                        'sentence_count': len(chunk_sentences),
+                        'thread_id': thread_id,
+                        'chunk_hash': chunk_hash,
+                        'keywords': keywords,
+                        'avg_similarity': 0.5,
                         'metadata': {
                             'source': 'pdf',
                             'page': page_num,
                             'section': current_section,
-                            'chunk_index': chunk_id
+                            'word_count': len(current_chunk.split()),
+                            'thread_id': thread_id
                         }
                     })
-                    
-                    # Start new chunk with overlap
-                    overlap_size = min(self.config.CHUNK_OVERLAP, len(current_chunk) // 3)
-                    current_chunk = current_chunk[-overlap_size:] + " " + sentence
-                    chunk_id += 1
-                else:
-                    current_chunk += " " + sentence if current_chunk else sentence
             
-            # Add remaining chunk
-            if current_chunk.strip() and len(current_chunk.strip()) > 50:
-                chunks.append({
-                    'id': f"{page_num}_{chunk_id}",
-                    'text': current_chunk.strip(),
-                    'page_number': page_num,
-                    'section': current_section,
-                    'word_count': len(current_chunk.split()),
-                    'metadata': {
-                        'source': 'pdf',
-                        'page': page_num,
-                        'section': current_section,
-                        'chunk_index': chunk_id
-                    }
-                })
+            logger.info(f"Thread {thread_id}: Created {len(thread_chunks)} optimal chunks")
+            return thread_chunks
         
-        logger.info(f"Created {len(chunks)} optimized chunks")
-        return chunks
-
-    def _get_embedding_uncached(self, text: str) -> List[float]:
-        """Get embedding for text (uncached version)"""
-        return self.embedding_model.encode([text], normalize_embeddings=True)[0].tolist()
-
-    def batch_create_embeddings(self, chunks: List[Dict]) -> List[Dict]:
-        """Create embeddings in optimized batches"""
-        logger.info("Creating embeddings in batches...")
-        texts = [chunk['text'] for chunk in chunks]
+        # Process in parallel
+        all_chunks = []
+        future_to_thread = {
+            self.chunk_executor.submit(process_page_group_optimal, group, i): i
+            for i, group in enumerate(page_groups)
+        }
+        
+        for future in as_completed(future_to_thread):
+            thread_id = future_to_thread[future]
+            try:
+                chunks = future.result()
+                all_chunks.extend(chunks)
+            except Exception as e:
+                logger.error(f"Chunking thread {thread_id} failed: {e}")
+        
+        logger.info(f"Total optimal chunks created: {len(all_chunks)}")
+        return all_chunks
+    
+    def _extract_keywords(self, text: str) -> List[str]:
+        """Extract semantic keywords from text"""
+        if not self.nlp:
+            return []
         
         try:
-            # Process in batches for memory efficiency
-            all_embeddings = []
-            batch_size = self.config.BATCH_SIZE
+            doc = self.nlp(text)
+            keywords = []
             
-            for i in range(0, len(texts), batch_size):
-                batch_texts = texts[i:i + batch_size]
-                batch_embeddings = self.embedding_model.encode(
-                    batch_texts,
+            for token in doc:
+                if (token.pos_ in ['NOUN', 'PROPN', 'ADJ'] and 
+                    not token.is_stop and 
+                    len(token.text) > 2):
+                    keywords.append(token.lemma_.lower())
+            
+            return list(set(keywords))[:10]  # Top 10 unique keywords
+        except:
+            return []
+    
+    def create_embeddings_and_store(self, chunks: List[Dict], document_id: str) -> List[Dict]:
+        """Create embeddings and store in Qdrant"""
+        logger.info("Creating embeddings and storing in databases...")
+        
+        # Group chunks by thread for parallel processing
+        thread_chunks = defaultdict(list)
+        for chunk in chunks:
+            thread_id = chunk.get('thread_id', 0)
+            thread_chunks[thread_id].append(chunk)
+        
+        def process_embeddings_for_thread(chunk_group: List[Dict], thread_id: int):
+            """Create embeddings for thread group"""
+            try:
+                texts = [chunk['text'] for chunk in chunk_group]
+                embeddings = self.embedding_model.encode(
+                    texts,
                     show_progress_bar=False,
-                    batch_size=batch_size,
-                    normalize_embeddings=True,
-                    convert_to_numpy=True
+                    batch_size=32,
+                    normalize_embeddings=True
                 )
-                all_embeddings.extend(batch_embeddings)
+                
+                for i, chunk in enumerate(chunk_group):
+                    chunk['embedding'] = embeddings[i].tolist()
+                
+                # Store in Qdrant
+                if self.qdrant_db:
+                    self.qdrant_db.add_chunks_by_thread(chunk_group, thread_id)
+                
+                logger.info(f"Thread {thread_id}: Processed {len(chunk_group)} chunks")
+                return chunk_group
+            except Exception as e:
+                logger.error(f"Embedding thread {thread_id} failed: {e}")
+                return chunk_group
+        
+        # Process embeddings in parallel
+        updated_chunks = []
+        future_to_thread = {
+            self.chunk_executor.submit(process_embeddings_for_thread, chunks_list, thread_id): thread_id
+            for thread_id, chunks_list in thread_chunks.items()
+        }
+        
+        for future in as_completed(future_to_thread):
+            thread_id = future_to_thread[future]
+            try:
+                processed_chunks = future.result()
+                updated_chunks.extend(processed_chunks)
+            except Exception as e:
+                logger.error(f"Embedding thread {thread_id} failed: {e}")
+        
+        # Store document structure in Neo4j (DISABLED)
+        if self.neo4j_kg:
+            self.neo4j_kg.store_document_structure(updated_chunks, document_id)
+        
+        logger.info(f"Embeddings created and stored for {len(updated_chunks)} chunks")
+        return updated_chunks
+    
+    def rate_limited_answer_generation(self, question: str, chunk_groups: List[List[Dict]], document_id: str) -> List[Dict]:
+        """Generate answers with proper rate limiting - FIXED"""
+        logger.info(f"Generating answers with rate limiting using {len(chunk_groups)} threads...")
+        
+        def generate_answer_with_retry(context_chunks: List[Dict], group_id: int) -> Dict:
+            """Generate answer with exponential backoff retry - FIXED"""
+            max_retries = 3
+            base_delay = 5
             
-            # Add embeddings to chunks
-            for i, chunk in enumerate(chunks):
-                chunk['embedding'] = all_embeddings[i].tolist()
-            
-            logger.info(f"Created embeddings for {len(chunks)} chunks")
-            return chunks
-            
-        except Exception as e:
-            logger.error(f"Error creating embeddings: {e}")
-            raise HTTPException(status_code=500, detail=f"Error creating embeddings: {str(e)}")
+            for attempt in range(max_retries):
+                try:
+                    if not context_chunks:
+                        return {
+                            'group_id': group_id,
+                            'answer': "No relevant context found.",
+                            'confidence': 0.0,
+                            'sources': []
+                        }
+                    
+                    # Prepare context
+                    context_parts = []
+                    for i, chunk in enumerate(context_chunks[:3], 1):
+                        context_parts.append(
+                            f"[Context {i} - Page {chunk['page_number']}, Section: {chunk['section']}]\n{chunk['text']}"
+                        )
+                    
+                    context_text = "\n\n".join(context_parts)
+                    
+                    # Enhanced prompt
+                    prompt = f"""You are an expert document analyst. Provide accurate, comprehensive answers based on the provided context.
 
-    def ultra_fast_semantic_search(self, question: str, chunks: List[Dict], top_k: int = None) -> List[Dict]:
-        """Ultra-fast semantic search with numpy optimizations"""
-        if top_k is None:
-            top_k = self.config.MAX_CONTEXT_CHUNKS
-        
-        try:
-            # Get question embedding
-            question_embedding = self.get_embedding(question)
-            question_vector = np.array(question_embedding).reshape(1, -1)
-            
-            # Convert chunk embeddings to numpy array
-            chunk_embeddings = np.array([chunk['embedding'] for chunk in chunks])
-            
-            # Compute cosine similarities in batch
-            similarities = cosine_similarity(question_vector, chunk_embeddings).flatten()
-            
-            # Get top-k indices
-            top_indices = np.argsort(similarities)[::-1][:top_k]
-            
-            # Filter by similarity threshold
-            filtered_indices = [idx for idx in top_indices 
-                             if similarities[idx] >= self.config.SIMILARITY_THRESHOLD]
-            
-            # If no chunks meet threshold, take top 2
-            if not filtered_indices:
-                filtered_indices = top_indices[:2].tolist()
-            
-            # Return top chunks with similarity scores
-            top_chunks = []
-            for idx in filtered_indices:
-                chunk = chunks[idx].copy()
-                chunk['similarity_score'] = float(similarities[idx])
-                top_chunks.append(chunk)
-            
-            return top_chunks
-            
-        except Exception as e:
-            logger.error(f"Error in semantic search: {e}")
-            return chunks[:top_k]
-
-    def generate_optimized_answer(self, question: str, context_chunks: List[Dict]) -> Dict:
-        """Generate high-quality answers with optimized prompting"""
-        
-        # Prepare focused context
-        context_parts = []
-        total_context_length = 0
-        max_context_length = 2000  # Limit context for speed
-        
-        for i, chunk in enumerate(context_chunks, 1):
-            chunk_text = chunk['text']
-            if total_context_length + len(chunk_text) > max_context_length:
-                # Truncate if too long
-                remaining_length = max_context_length - total_context_length
-                chunk_text = chunk_text[:remaining_length] + "..."
-                context_parts.append(f"[Source {i} - Page {chunk['page_number']}]: {chunk_text}")
-                break
-            
-            context_parts.append(f"[Source {i} - Page {chunk['page_number']}]: {chunk_text}")
-            total_context_length += len(chunk_text)
-        
-        context_text = "\n\n".join(context_parts)
-        
-        # Optimized prompt for better accuracy and speed
-        prompt = f"""Based on the following document excerpts, provide a precise and complete answer to the question. Focus on accuracy and include specific details like numbers, timeframes, and conditions when available.
-
-DOCUMENT EXCERPTS:
+CONTEXT:
 {context_text}
 
 QUESTION: {question}
 
-ANSWER REQUIREMENTS:
-- Use only information from the provided excerpts
-- Be specific with numbers, periods, percentages, and conditions
-- If the exact information isn't available, state "The specific information is not provided in the document"
-- Provide a complete answer in 1-3 sentences
-- Be direct and factual
+INSTRUCTIONS:
+1. Analyze the question carefully
+2. Use ALL provided context for your answer
+3. Be precise with numbers, dates, and specific terms
+4. If information is not available, state this clearly
+5. Structure your response clearly and logically
 
 ANSWER:"""
-
-        try:
-            response = self.groq_client.chat.completions.create(
-                model="llama3-70b-8192",  # Fast and accurate model
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=300,  # Limit for speed
-                temperature=0.1,  # Low temperature for consistency
-                top_p=0.9,
-                stop=None
-            )
-            
-            answer_text = response.choices[0].message.content.strip()
-            
-            # Calculate confidence based on similarity scores and answer quality
-            avg_similarity = sum(chunk.get('similarity_score', 0) for chunk in context_chunks) / len(context_chunks)
-            
-            # Boost confidence if answer contains specific details
-            detail_indicators = ['%', 'days', 'months', 'years', 'hours', '$', 'rupees', 'limit', 'maximum', 'minimum']
-            has_details = any(indicator in answer_text.lower() for indicator in detail_indicators)
-            confidence_boost = 0.1 if has_details else 0
-            
-            confidence = min(avg_similarity + confidence_boost, 1.0)
-            
-            return {
-                'question': question,
-                'answer': answer_text,
-                'confidence': confidence,
-                'source_count': len(context_chunks),
-                'sources': [
-                    {
-                        'page': chunk['page_number'],
-                        'section': chunk.get('section', 'Unknown'),
-                        'similarity_score': chunk.get('similarity_score', 0)
+                    
+                    # Use different API key for each thread
+                    api_key_index = group_id % len(self.groq_clients)
+                    groq_client = self.groq_clients[api_key_index]
+                    
+                    # Add delay between requests
+                    if api_key_index in self.last_request_time:
+                        elapsed = time.time() - self.last_request_time[api_key_index]
+                        if elapsed < self.min_request_interval:
+                            wait_time = self.min_request_interval - elapsed
+                            logger.info(f"Waiting {wait_time:.2f}s for API key {api_key_index + 1}")
+                            time.sleep(wait_time)
+                    
+                    response = groq_client.chat.completions.create(
+                        model="llama3-70b-8192",
+                        messages=[{"role": "user", "content": prompt}],
+                        max_tokens=600,  # Reduced to save tokens
+                        temperature=0.1,
+                        top_p=0.9
+                    )
+                    
+                    self.last_request_time[api_key_index] = time.time()
+                    answer_text = response.choices[0].message.content.strip()
+                    
+                    # Calculate confidence
+                    avg_similarity = sum(chunk.get('similarity_score', 0) for chunk in context_chunks) / len(context_chunks)
+                    confidence = min(avg_similarity * 1.2, 1.0)
+                    
+                    return {
+                        'group_id': group_id,
+                        'answer': answer_text,
+                        'confidence': confidence,
+                        'api_key_used': api_key_index + 1,
+                        'attempt': attempt + 1,
+                        'sources': [
+                            {
+                                'page': chunk['page_number'],
+                                'section': chunk['section'],
+                                'similarity_score': chunk.get('similarity_score', 0)
+                            }
+                            for chunk in context_chunks[:3]
+                        ]
                     }
-                    for chunk in context_chunks[:2]  # Limit sources for clean output
-                ]
-            }
-        
-        except Exception as e:
-            logger.error(f"Error generating answer: {e}")
+                    
+                except Exception as e:
+                    if "429" in str(e) and attempt < max_retries - 1:
+                        # FIXED: Remove question_index and use exponential backoff
+                        delay = base_delay * (2 ** attempt)  # Exponential backoff: 5s, 10s, 20s
+                        logger.warning(f"Rate limit hit for group {group_id}, waiting {delay}s (attempt {attempt + 1})")
+                        time.sleep(delay)
+                        continue
+                    else:
+                        logger.error(f"Error in group {group_id} after {attempt + 1} attempts: {e}")
+                        return {
+                            'group_id': group_id,
+                            'answer': f"Error generating answer after {attempt + 1} attempts: {str(e)}",
+                            'confidence': 0.0,
+                            'sources': []
+                        }
+            
             return {
-                'question': question,
-                'answer': f"Error generating answer: {str(e)}",
+                'group_id': group_id,
+                'answer': "Failed to generate answer after all retries",
                 'confidence': 0.0,
-                'source_count': 0,
                 'sources': []
             }
-
-    async def process_questions_ultra_fast(self, pdf_url: str, questions: List[str]) -> List[str]:
-        """Ultra-fast processing pipeline with parallel processing"""
-        logger.info(f"Processing {len(questions)} questions for PDF: {pdf_url}")
         
+        # Generate answers with controlled concurrency
+        results = []
+        future_to_group = {
+            self.query_executor.submit(generate_answer_with_retry, chunks, i): i
+            for i, chunks in enumerate(chunk_groups)
+        }
+        
+        for future in as_completed(future_to_group):
+            group_id = future_to_group[future]
+            try:
+                result = future.result()
+                results.append(result)
+            except Exception as e:
+                logger.error(f"Answer generation failed for group {group_id}: {e}")
+        
+        results.sort(key=lambda x: x.get('group_id', 0))
+        logger.info(f"Generated {len(results)} answers with rate limiting")
+        return results
+    
+    def synthesize_final_answer(self, question: str, parallel_results: List[Dict]) -> str:
+        """Synthesize final answer with fallback for rate limiting"""
+        logger.info("Synthesizing final answer...")
+        
+        # Filter valid results and sort by confidence
+        valid_results = [r for r in parallel_results if r['confidence'] > 0.1]
+        if not valid_results:
+            return "Unable to find relevant information to answer the question."
+        
+        valid_results.sort(key=lambda x: x['confidence'], reverse=True)
+        
+        # If we have high-confidence answer, use it directly
+        if valid_results[0]['confidence'] > 0.8:
+            return valid_results[0]['answer']
+        
+        # Try synthesis with rate limiting protection
         try:
-            # Step 1: Download and parse PDF (cached)
-            pdf_bytes = await self.download_pdf(pdf_url)
-            pages = self.parse_pdf(pdf_bytes)
+            # Check if we have recent API usage
+            now = time.time()
+            last_synthesis_key = 0  # Use first API key for synthesis
+            if last_synthesis_key in self.last_request_time:
+                elapsed = now - self.last_request_time[last_synthesis_key]
+                if elapsed < self.min_request_interval:
+                    logger.warning("Skipping synthesis due to rate limiting, using best single answer")
+                    return valid_results[0]['answer']
             
-            if not pages:
-                raise HTTPException(status_code=400, detail="No readable content found in PDF")
+            answers_text = "\n\n".join([
+                f"Response {i+1} (confidence: {r['confidence']:.2f}): {r['answer']}"
+                for i, r in enumerate(valid_results[:2])  # Only use top 2 to save tokens
+            ])
             
-            # Step 2: Create optimized chunks
-            chunks = self.optimized_chunk_document(pages)
+            synthesis_prompt = f"""Synthesize these responses into one coherent answer:
+
+QUESTION: {question}
+
+RESPONSES:
+{answers_text}
+
+Provide a single, accurate answer combining the best information from both responses.
+
+ANSWER:"""
             
-            if not chunks:
-                raise HTTPException(status_code=400, detail="Could not create document chunks")
+            # Add delay before synthesis
+            if last_synthesis_key in self.last_request_time:
+                elapsed = time.time() - self.last_request_time[last_synthesis_key]
+                if elapsed < self.min_request_interval:
+                    time.sleep(self.min_request_interval - elapsed)
             
-            # Step 3: Create embeddings in batches
-            chunks = self.batch_create_embeddings(chunks)
-            
-            # Step 4: Process questions in parallel (limited concurrency)
-            semaphore = asyncio.Semaphore(3)  # Limit concurrent API calls
-            
-            async def process_single_question(question: str, index: int) -> Tuple[int, str]:
-                async with semaphore:
-                    try:
-                        # Run search in thread pool to avoid blocking
-                        loop = asyncio.get_event_loop()
-                        relevant_chunks = await loop.run_in_executor(
-                            self.thread_pool,
-                            self.ultra_fast_semantic_search,
-                            question,
-                            chunks
-                        )
-                        
-                        # Generate answer
-                        result = self.generate_optimized_answer(question, relevant_chunks)
-                        
-                        logger.info(f"Question {index + 1}/{len(questions)} completed "
-                                  f"(confidence: {result['confidence']:.3f})")
-                        
-                        return index, result['answer']
-                        
-                    except Exception as e:
-                        logger.error(f"Error processing question {index + 1}: {e}")
-                        return index, f"Error processing question: {str(e)}"
-            
-            # Process all questions concurrently
-            tasks = [
-                process_single_question(question, i) 
-                for i, question in enumerate(questions)
-            ]
-            
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-            
-            # Sort results by original question order
-            sorted_results = sorted(
-                [(i, answer) for i, answer in results if not isinstance(answer, Exception)],
-                key=lambda x: x[0]
+            response = self.groq_clients[0].chat.completions.create(
+                model="llama3-70b-8192",
+                messages=[{"role": "user", "content": synthesis_prompt}],
+                max_tokens=400,  # Reduced token usage
+                temperature=0.1
             )
             
-            answers = [answer for _, answer in sorted_results]
+            self.last_request_time[last_synthesis_key] = time.time()
+            return response.choices[0].message.content.strip()
             
-            # Handle any exceptions
-            for result in results:
-                if isinstance(result, Exception):
-                    logger.error(f"Task failed with exception: {result}")
-            
-            logger.info(f"Completed processing {len(answers)} questions successfully")
-            return answers
-            
-        except HTTPException:
-            raise
         except Exception as e:
-            logger.error(f"Error in ultra-fast processing pipeline: {e}")
-            logger.error(traceback.format_exc())
-            raise HTTPException(status_code=500, detail=f"Processing error: {str(e)}")
-
-    async def process_questions_detailed(self, pdf_url: str, questions: List[str]) -> List[Dict]:
-        """Process questions with detailed responses"""
-        logger.info(f"Processing {len(questions)} questions with detailed responses")
+            logger.error(f"Synthesis failed: {e}")
+            # Fallback to best single answer
+            return valid_results[0]['answer']
+    
+    async def process_questions_rate_limited(self, pdf_url: str, questions: List[str]) -> List[str]:
+        """Main processing pipeline with rate limiting"""
+        logger.info(f"Processing {len(questions)} questions with rate limiting...")
+        start_time = time.time()
         
         try:
-            # Download and parse PDF
+            # Generate document ID
+            document_id = hashlib.md5(pdf_url.encode()).hexdigest()
+            
+            # Step 1: Download and parse PDF
             pdf_bytes = await self.download_pdf(pdf_url)
             pages = self.parse_pdf(pdf_bytes)
             
-            # Create chunks and embeddings
-            chunks = self.optimized_chunk_document(pages)
-            chunks = self.batch_create_embeddings(chunks)
+            # Step 2: Multi-thread chunking
+            chunks = self.optimal_multi_thread_chunking(pages)
             
-            # Process questions with detailed results
-            detailed_answers = []
-            for i, question in enumerate(questions):
-                logger.info(f"Processing detailed question {i + 1}/{len(questions)}")
+            # Step 3: Create embeddings and store
+            chunks = self.create_embeddings_and_store(chunks, document_id)
+            
+            # Step 4: Process each question with rate limiting
+            final_answers = []
+            
+            for question_index, question in enumerate(questions):  # ADDED question_index
+                question_start = time.time()
                 
-                relevant_chunks = self.ultra_fast_semantic_search(question, chunks)
-                result = self.generate_optimized_answer(question, relevant_chunks)
-                detailed_answers.append(result)
+                # Get question embedding
+                question_embedding = self.embedding_model.encode([question], normalize_embeddings=True)[0].tolist()
+                
+                # Search with thread distribution
+                chunk_groups = []
+                if self.qdrant_db:
+                    chunk_groups = self.qdrant_db.search_with_thread_distribution(
+                        query_vector=question_embedding,
+                        top_k=self.config.MAX_CONTEXT_CHUNKS,
+                        num_threads=self.config.QUERY_THREADS
+                    )
+                
+                # Generate answers with rate limiting
+                parallel_results = self.rate_limited_answer_generation(question, chunk_groups, document_id)
+                
+                # Synthesize final answer
+                final_answer = self.synthesize_final_answer(question, parallel_results)
+                final_answers.append(final_answer)
+                
+                question_time = time.time() - question_start
+                logger.info(f"Question {question_index + 1} processed in {question_time:.2f}s")
             
-            return detailed_answers
+            total_time = time.time() - start_time
+            logger.info(f"Rate-limited processing completed in {total_time:.2f}s")
             
-        except HTTPException:
-            raise
+            return final_answers
+            
         except Exception as e:
-            logger.error(f"Error in detailed processing: {e}")
-            raise HTTPException(status_code=500, detail=f"Processing error: {str(e)}")
-
-    def clear_cache(self):
-        """Clear all caches"""
-        with self.lock:
-            self._document_cache.clear()
-            self._embedding_cache.clear()
-            # Clear LRU caches
-            self.get_embedding.cache_clear()
-            self.parse_pdf_cached.cache_clear()
-        logger.info("All caches cleared")
-
-    def get_cache_stats(self) -> Dict:
-        """Get cache statistics"""
-        return {
-            'document_cache_size': len(self._document_cache),
-            'embedding_cache_info': self.get_embedding.cache_info()._asdict(),
-            'pdf_cache_info': self.parse_pdf_cached.cache_info()._asdict()
-        }
-
+            logger.error(f"Rate-limited processing failed: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+    
     def close_connections(self):
-        """Close database connections and cleanup"""
-        if hasattr(self, 'neo4j_driver') and self.neo4j_driver:
-            self.neo4j_driver.close()
-            logger.info("Neo4j connection closed")
+        """Close all connections"""
+        if self.neo4j_kg:
+            self.neo4j_kg.close()
         
-        if hasattr(self, 'thread_pool'):
-            self.thread_pool.shutdown(wait=True)
-            logger.info("Thread pool shutdown")
+        if hasattr(self, 'chunk_executor'):
+            self.chunk_executor.shutdown(wait=True)
+        if hasattr(self, 'query_executor'):
+            self.query_executor.shutdown(wait=True)
         
-        self.clear_cache()
+        logger.info("All connections closed")
 
-# Global QA system instance
+# Global system instance
 qa_system = None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup
     global qa_system
-    logger.info("Starting up Ultra-Enhanced PDF Q&A System...")
-    qa_system = UltraEnhancedPDFQASystem()
+    logger.info("Starting Rate-Limited Multi-Thread PDF Q&A System...")
+    qa_system = OptimalMultiThreadPDFQASystem()
     yield
-    # Shutdown
-    logger.info("Shutting down Ultra-Enhanced PDF Q&A System...")
+    logger.info("Shutting down system...")
     if qa_system:
         qa_system.close_connections()
 
-# Initialize FastAPI app
+# FastAPI app
 app = FastAPI(
-    title="Ultra-Enhanced PDF Q&A API",
-    description="Ultra-fast and accurate PDF Question-Answering System",
-    version="3.0.0",
+    title="Rate-Limited Multi-Thread PDF Q&A API",
+    description=f"Rate-limited multi-threaded PDF Q&A system with {min(3, max(1, multiprocessing.cpu_count() - 1))} threads",
+    version="6.1.0",  # Updated version number
     lifespan=lifespan
 )
 
-@app.post("/ask", response_model=AnswerResponse)
-async def ask_questions(request: QuestionRequest):
-    """
-    Process questions against a PDF document with ultra-fast processing
-    
-    - **documents**: URL to the PDF document
-    - **questions**: List of questions to ask about the document
-    """
+@app.post("/hackrx/run")
+async def hackrx_run(request: QuestionRequest):
+    """HackRX testing endpoint with rate limiting"""
     try:
-        logger.info(f"Received request with {len(request.questions)} questions")
-        start_time = datetime.now()
+        logger.info(f"HackRX endpoint: Processing {len(request.questions)} questions with rate limiting")
         
-        # Process questions with ultra-fast pipeline
-        answers = await qa_system.process_questions_ultra_fast(
-            str(request.documents), 
+        answers = await qa_system.process_questions_rate_limited(
+            str(request.documents),
             request.questions
         )
         
-        processing_time = (datetime.now() - start_time).total_seconds()
-        logger.info(f"Request completed in {processing_time:.2f} seconds")
+        return {"answers": answers}
         
-        return AnswerResponse(answers=answers)
-    
-    except HTTPException:
-        raise
     except Exception as e:
-        logger.error(f"Unexpected error: {e}")
-        logger.error(traceback.format_exc())
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
-
-@app.post("/ask-detailed", response_model=DetailedAnswerResponse)
-async def ask_questions_detailed(request: QuestionRequest):
-    """
-    Process questions against a PDF document with detailed response including confidence and sources
-    """
-    try:
-        logger.info(f"Received detailed request with {len(request.questions)} questions")
-        start_time = datetime.now()
-        
-        detailed_answers = await qa_system.process_questions_detailed(
-            str(request.documents), 
-            request.questions
-        )
-        
-        processing_time = (datetime.now() - start_time).total_seconds()
-        logger.info(f"Detailed request completed in {processing_time:.2f} seconds")
-        
-        return DetailedAnswerResponse(answers=detailed_answers)
-    
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Unexpected error: {e}")
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+        logger.error(f"HackRX endpoint error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/health")
 async def health_check():
-    """Health check endpoint with system statistics"""
+    """Health check with system configuration"""
     return {
         "status": "healthy",
         "timestamp": datetime.now().isoformat(),
-        "cache_stats": qa_system.get_cache_stats() if qa_system else {},
-        "system_info": {
-            "max_workers": qa_system.config.MAX_WORKERS if qa_system else 0,
-            "chunk_size": qa_system.config.CHUNK_SIZE if qa_system else 0,
-            "embedding_model": qa_system.config.EMBEDDING_MODEL if qa_system else "unknown"
+        "system_config": {
+            "total_threads": qa_system.config.TOTAL_THREADS if qa_system else "Unknown",
+            "chunk_threads": qa_system.config.CHUNK_THREADS if qa_system else "Unknown",
+            "query_threads": qa_system.config.QUERY_THREADS if qa_system else "Unknown",
+            "groq_api_keys": len(qa_system.config.GROQ_API_KEYS) if qa_system else 0,
+            "vector_db": "Qdrant",
+            "rate_limiting": "Enabled",
+            "cpu_count": multiprocessing.cpu_count()
         }
     }
 
-@app.post("/clear-cache")
-async def clear_cache():
-    """Clear system caches"""
-    if qa_system:
-        qa_system.clear_cache()
-        return {"message": "Caches cleared successfully"}
-    return {"message": "System not initialized"}
-
 @app.get("/")
 async def root():
+    """Root endpoint with system information"""
+    return {
+        "message": "Rate-Limited Multi-Thread PDF Q&A API",
+        "version": "6.1.0",
+        "features": [
+            f"{min(3, max(1, multiprocessing.cpu_count() - 1))}-thread rate-limited processing",
+            "Multiple Groq API keys with throttling",
+            "Enhanced Qdrant vector database storage",
+            "Exponential backoff retry logic",
+            "Request semaphore limiting",
+            "Token usage optimization",
+            "Fixed question_index error"
+        ],
+        "optimizations": {
+            "max_concurrent_requests": 1,  # Updated
+            "min_request_interval": "4.0s",  # Updated
+            "max_tokens_per_request": 600,
+            "retry_attempts": 3
+        }
+    }
+
+if __name__ == "__main__":
+    uvicorn.run(
+        "i:app",
+        host="0.0.0.0",
+        port=8000,
+        reload=True,
+        log_level="info"
+    )

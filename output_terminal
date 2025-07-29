@@ -1,0 +1,223 @@
+# NOW THE NO. THREAD HAS BEEN DECREASED FOR QUERYING TO 3 AND 5 THREADS FOR CHUNKING 
+
+
+INFO:     Started server process [23564]
+INFO:     Waiting for application startup.
+2025-07-29 19:31:59,122 - i - INFO - Starting Rate-Limited Multi-Thread PDF Q&A System...
+2025-07-29 19:31:59,122 - i - INFO - Configured 3 Groq API keys for 3 threads
+2025-07-29 19:31:59,123 - i - INFO - System configured with 3 threads using 3 API keys
+2025-07-29 19:31:59,123 - i - INFO - Initializing Rate-Limited Multi-Thread PDF Q&A System (3 threads)...
+2025-07-29 19:31:59,125 - i - WARNING - spaCy model not found
+2025-07-29 19:31:59,132 - sentence_transformers.SentenceTransformer - INFO - Use pytorch device_name: cpu
+2025-07-29 19:31:59,132 - sentence_transformers.SentenceTransformer - INFO - Load pretrained SentenceTransformer: sentence-transformers/all-mpnet-base-v2
+2025-07-29 19:32:06,429 - i - INFO - Embedding model loaded
+2025-07-29 19:32:07,238 - httpx - INFO - HTTP Request: GET https://0172f817-ca8e-447a-94fb-5f1e2eacde09.eu-central-1-0.aws.cloud.qdrant.io:6333 "HTTP/1.1 200 OK"
+2025-07-29 19:32:08,057 - httpx - INFO - HTTP Request: PUT https://0172f817-ca8e-447a-94fb-5f1e2eacde09.eu-central-1-0.aws.cloud.qdrant.io:6333/collections/pdf_chunks_1753797727 "HTTP/1.1 200 OK"
+2025-07-29 19:32:08,060 - i - INFO - Qdrant collection 'pdf_chunks_1753797727' created
+2025-07-29 19:32:08,060 - i - INFO - Enhanced Qdrant database initialized
+2025-07-29 19:32:08,061 - i - INFO - Neo4j disabled due to connection issues
+2025-07-29 19:32:08,061 - i - INFO - All components initialized successfully!
+2025-07-29 19:32:08,061 - i - INFO - Thread pools configured: 5 chunking, 3 querying
+2025-07-29 19:32:08,086 - i - INFO - Groq client 1 initialized
+2025-07-29 19:32:08,114 - i - INFO - Groq client 2 initialized
+2025-07-29 19:32:08,143 - i - INFO - Groq client 3 initialized
+INFO:     Application startup complete.
+INFO:     127.0.0.1:52519 - "GET /docs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52519 - "GET /openapi.json HTTP/1.1" 200 OK
+2025-07-29 19:32:28,716 - i - INFO - HackRX endpoint: Processing 10 questions with rate limiting
+2025-07-29 19:32:28,718 - i - INFO - Processing 10 questions with rate limiting...
+2025-07-29 19:32:28,719 - i - INFO - Downloading PDF from: https://hackrx.blob.core.windows.net/assets/policy.pdf?sv=2023-01-03&st=2025-07-04T09%3A11%3A24Z&se=2027-07-05T09%3A11%3A00Z&sr=b&sp=r&sig=N4a9OU0w0QXO6AOIBiu4bpl7AXvEZogeT%2FjUHNO7HzQ%3D
+2025-07-29 19:32:29,386 - i - INFO - PDF cached: 704602 bytes
+2025-07-29 19:32:29,387 - i - INFO - Parsing PDF with enhanced structure extraction...
+2025-07-29 19:32:50,376 - i - INFO - PDF parsed: 25 pages with enhanced structure
+2025-07-29 19:32:50,376 - i - INFO - Creating smart chunks using 5 threads...
+2025-07-29 19:32:50,383 - i - INFO - Thread 0: Created 63 optimal chunks
+2025-07-29 19:32:50,389 - i - INFO - Thread 1: Created 58 optimal chunks
+2025-07-29 19:32:50,392 - i - INFO - Thread 2: Created 62 optimal chunks
+2025-07-29 19:32:50,394 - i - INFO - Thread 3: Created 50 optimal chunks
+2025-07-29 19:32:50,398 - i - INFO - Thread 4: Created 32 optimal chunks
+2025-07-29 19:32:50,398 - i - INFO - Total optimal chunks created: 265
+2025-07-29 19:32:50,399 - i - INFO - Creating embeddings and storing in databases...
+2025-07-29 19:33:56,512 - httpx - INFO - HTTP Request: PUT https://0172f817-ca8e-447a-94fb-5f1e2eacde09.eu-central-1-0.aws.cloud.qdrant.io:6333/collections/pdf_chunks_1753797727/points?wait=true "HTTP/1.1 200 OK"
+2025-07-29 19:33:56,556 - i - INFO - Thread 3: Added 50 chunks to Qdrant
+2025-07-29 19:33:56,562 - i - INFO - Thread 3: Processed 50 chunks
+2025-07-29 19:34:07,615 - httpx - INFO - HTTP Request: PUT https://0172f817-ca8e-447a-94fb-5f1e2eacde09.eu-central-1-0.aws.cloud.qdrant.io:6333/collections/pdf_chunks_1753797727/points?wait=true "HTTP/1.1 200 OK"
+2025-07-29 19:34:07,617 - i - INFO - Thread 4: Added 32 chunks to Qdrant
+2025-07-29 19:34:07,619 - i - INFO - Thread 4: Processed 32 chunks
+2025-07-29 19:34:08,840 - httpx - INFO - HTTP Request: PUT https://0172f817-ca8e-447a-94fb-5f1e2eacde09.eu-central-1-0.aws.cloud.qdrant.io:6333/collections/pdf_chunks_1753797727/points?wait=true "HTTP/1.1 200 OK"
+2025-07-29 19:34:08,842 - i - INFO - Thread 1: Added 58 chunks to Qdrant
+2025-07-29 19:34:08,843 - i - INFO - Thread 1: Processed 58 chunks
+2025-07-29 19:34:09,642 - httpx - INFO - HTTP Request: PUT https://0172f817-ca8e-447a-94fb-5f1e2eacde09.eu-central-1-0.aws.cloud.qdrant.io:6333/collections/pdf_chunks_1753797727/points?wait=true "HTTP/1.1 200 OK"
+2025-07-29 19:34:09,646 - i - INFO - Thread 0: Added 63 chunks to Qdrant
+2025-07-29 19:34:09,647 - i - INFO - Thread 0: Processed 63 chunks
+2025-07-29 19:34:14,829 - httpx - INFO - HTTP Request: PUT https://0172f817-ca8e-447a-94fb-5f1e2eacde09.eu-central-1-0.aws.cloud.qdrant.io:6333/collections/pdf_chunks_1753797727/points?wait=true "HTTP/1.1 200 OK"
+2025-07-29 19:34:14,830 - i - INFO - Thread 2: Added 62 chunks to Qdrant
+2025-07-29 19:34:14,831 - i - INFO - Thread 2: Processed 62 chunks
+2025-07-29 19:34:14,832 - i - INFO - Neo4j storage skipped (disabled)
+2025-07-29 19:34:14,832 - i - INFO - Embeddings created and stored for 265 chunks
+Batches: 100%|███████████████████████████████████████████████████████████████████████████| 1/1 [00:00<00:00,  5.20it/s]
+2025-07-29 19:34:15,284 - httpx - INFO - HTTP Request: POST https://0172f817-ca8e-447a-94fb-5f1e2eacde09.eu-central-1-0.aws.cloud.qdrant.io:6333/collections/pdf_chunks_1753797727/points/search "HTTP/1.1 200 OK"
+2025-07-29 19:34:15,288 - i - INFO - Generating answers with rate limiting using 3 threads...
+2025-07-29 19:34:16,246 - httpx - INFO - HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
+2025-07-29 19:34:16,280 - httpx - INFO - HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
+2025-07-29 19:34:16,410 - httpx - INFO - HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
+2025-07-29 19:34:16,412 - i - INFO - Generated 3 answers with rate limiting
+2025-07-29 19:34:16,412 - i - INFO - Synthesizing final answer...
+2025-07-29 19:34:16,413 - i - INFO - Question 1 processed in 1.58s
+Batches: 100%|███████████████████████████████████████████████████████████████████████████| 1/1 [00:00<00:00,  9.90it/s]
+2025-07-29 19:34:16,680 - httpx - INFO - HTTP Request: POST https://0172f817-ca8e-447a-94fb-5f1e2eacde09.eu-central-1-0.aws.cloud.qdrant.io:6333/collections/pdf_chunks_1753797727/points/search "HTTP/1.1 200 OK"
+2025-07-29 19:34:16,681 - i - INFO - Generating answers with rate limiting using 3 threads...
+2025-07-29 19:34:16,682 - i - INFO - Waiting 3.57s for API key 1
+2025-07-29 19:34:16,682 - i - INFO - Waiting 3.60s for API key 2
+2025-07-29 19:34:16,682 - i - INFO - Waiting 3.73s for API key 3
+2025-07-29 19:34:21,280 - httpx - INFO - HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
+2025-07-29 19:34:21,281 - httpx - INFO - HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
+2025-07-29 19:34:21,690 - httpx - INFO - HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
+2025-07-29 19:34:21,692 - i - INFO - Generated 3 answers with rate limiting
+2025-07-29 19:34:21,692 - i - INFO - Synthesizing final answer...
+2025-07-29 19:34:21,692 - i - WARNING - Skipping synthesis due to rate limiting, using best single answer
+2025-07-29 19:34:21,692 - i - INFO - Question 2 processed in 5.28s
+Batches: 100%|███████████████████████████████████████████████████████████████████████████| 1/1 [00:00<00:00, 10.57it/s]
+2025-07-29 19:34:22,611 - httpx - INFO - HTTP Request: POST https://0172f817-ca8e-447a-94fb-5f1e2eacde09.eu-central-1-0.aws.cloud.qdrant.io:6333/collections/pdf_chunks_1753797727/points/search "HTTP/1.1 200 OK"
+2025-07-29 19:34:22,613 - i - INFO - Generating answers with rate limiting using 3 threads...
+2025-07-29 19:34:22,613 - i - INFO - Waiting 2.67s for API key 1
+2025-07-29 19:34:22,614 - i - INFO - Waiting 3.08s for API key 2
+2025-07-29 19:34:22,614 - i - INFO - Waiting 2.67s for API key 3
+2025-07-29 19:34:26,400 - httpx - INFO - HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
+2025-07-29 19:34:26,503 - httpx - INFO - HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
+2025-07-29 19:34:27,117 - httpx - INFO - HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
+2025-07-29 19:34:27,120 - i - INFO - Generated 3 answers with rate limiting
+2025-07-29 19:34:27,120 - i - INFO - Synthesizing final answer...
+2025-07-29 19:34:27,120 - i - INFO - Question 3 processed in 5.43s
+Batches: 100%|███████████████████████████████████████████████████████████████████████████| 1/1 [00:00<00:00,  8.89it/s]
+2025-07-29 19:34:27,526 - httpx - INFO - HTTP Request: POST https://0172f817-ca8e-447a-94fb-5f1e2eacde09.eu-central-1-0.aws.cloud.qdrant.io:6333/collections/pdf_chunks_1753797727/points/search "HTTP/1.1 200 OK"
+2025-07-29 19:34:27,529 - i - INFO - Generating answers with rate limiting using 3 threads...
+2025-07-29 19:34:27,529 - i - INFO - Waiting 2.87s for API key 1
+2025-07-29 19:34:27,529 - i - INFO - Waiting 3.59s for API key 2
+2025-07-29 19:34:27,529 - i - INFO - Waiting 2.98s for API key 3
+2025-07-29 19:34:31,212 - httpx - INFO - HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
+2025-07-29 19:34:31,418 - httpx - INFO - HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
+2025-07-29 19:34:32,442 - httpx - INFO - HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
+2025-07-29 19:34:32,444 - i - INFO - Generated 3 answers with rate limiting
+2025-07-29 19:34:32,445 - i - INFO - Synthesizing final answer...
+2025-07-29 19:34:32,445 - i - WARNING - Skipping synthesis due to rate limiting, using best single answer
+2025-07-29 19:34:32,445 - i - INFO - Question 4 processed in 5.33s
+Batches: 100%|███████████████████████████████████████████████████████████████████████████| 1/1 [00:00<00:00,  9.12it/s]
+2025-07-29 19:34:33,466 - httpx - INFO - HTTP Request: POST https://0172f817-ca8e-447a-94fb-5f1e2eacde09.eu-central-1-0.aws.cloud.qdrant.io:6333/collections/pdf_chunks_1753797727/points/search "HTTP/1.1 200 OK"
+2025-07-29 19:34:33,468 - i - INFO - Generating answers with rate limiting using 3 threads...
+2025-07-29 19:34:33,469 - i - INFO - Waiting 1.75s for API key 1
+2025-07-29 19:34:33,469 - i - INFO - Waiting 2.98s for API key 2
+2025-07-29 19:34:33,469 - i - INFO - Waiting 1.95s for API key 3
+2025-07-29 19:34:36,669 - httpx - INFO - HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
+2025-07-29 19:34:36,681 - httpx - INFO - HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
+2025-07-29 19:34:38,075 - httpx - INFO - HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
+2025-07-29 19:34:38,077 - i - INFO - Generated 3 answers with rate limiting
+2025-07-29 19:34:38,077 - i - INFO - Synthesizing final answer...
+2025-07-29 19:34:38,077 - i - INFO - Question 5 processed in 5.63s
+Batches: 100%|███████████████████████████████████████████████████████████████████████████| 1/1 [00:00<00:00,  8.11it/s]
+2025-07-29 19:34:38,690 - httpx - INFO - HTTP Request: POST https://0172f817-ca8e-447a-94fb-5f1e2eacde09.eu-central-1-0.aws.cloud.qdrant.io:6333/collections/pdf_chunks_1753797727/points/search "HTTP/1.1 200 OK"
+2025-07-29 19:34:38,691 - i - INFO - Generating answers with rate limiting using 3 threads...
+2025-07-29 19:34:38,691 - i - INFO - Waiting 1.99s for API key 1
+2025-07-29 19:34:38,692 - i - INFO - Waiting 3.39s for API key 2
+2025-07-29 19:34:38,692 - i - INFO - Waiting 1.98s for API key 3
+2025-07-29 19:34:40,846 - httpx - INFO - HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 429 Too Many Requests"
+2025-07-29 19:34:40,847 - httpx - INFO - HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 429 Too Many Requests"
+2025-07-29 19:34:40,848 - groq._base_client - INFO - Retrying request to /openai/v1/chat/completions in 10.000000 seconds
+2025-07-29 19:34:40,848 - groq._base_client - INFO - Retrying request to /openai/v1/chat/completions in 12.000000 seconds
+2025-07-29 19:34:42,139 - httpx - INFO - HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 429 Too Many Requests"
+2025-07-29 19:34:42,140 - groq._base_client - INFO - Retrying request to /openai/v1/chat/completions in 10.000000 seconds
+2025-07-29 19:34:51,663 - httpx - INFO - HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
+2025-07-29 19:34:52,209 - httpx - INFO - HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 429 Too Many Requests"
+2025-07-29 19:34:52,210 - groq._base_client - INFO - Retrying request to /openai/v1/chat/completions in 4.000000 seconds
+2025-07-29 19:34:52,925 - httpx - INFO - HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 429 Too Many Requests"
+2025-07-29 19:34:52,926 - groq._base_client - INFO - Retrying request to /openai/v1/chat/completions in 3.000000 seconds
+2025-07-29 19:34:56,711 - httpx - INFO - HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
+2025-07-29 19:34:57,325 - httpx - INFO - HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
+2025-07-29 19:34:57,328 - i - INFO - Generated 3 answers with rate limiting
+2025-07-29 19:34:57,328 - i - INFO - Synthesizing final answer...
+2025-07-29 19:34:57,329 - i - INFO - Question 6 processed in 19.25s
+Batches: 100%|███████████████████████████████████████████████████████████████████████████| 1/1 [00:00<00:00,  9.17it/s]
+2025-07-29 19:34:58,349 - httpx - INFO - HTTP Request: POST https://0172f817-ca8e-447a-94fb-5f1e2eacde09.eu-central-1-0.aws.cloud.qdrant.io:6333/collections/pdf_chunks_1753797727/points/search "HTTP/1.1 200 OK"
+2025-07-29 19:34:58,351 - i - INFO - Generating answers with rate limiting using 3 threads...
+2025-07-29 19:34:58,354 - i - INFO - Waiting 2.97s for API key 2
+2025-07-29 19:34:58,355 - i - INFO - Waiting 2.36s for API key 3
+2025-07-29 19:34:58,555 - httpx - INFO - HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 429 Too Many Requests"
+2025-07-29 19:34:58,556 - groq._base_client - INFO - Retrying request to /openai/v1/chat/completions in 9.000000 seconds
+2025-07-29 19:35:00,910 - httpx - INFO - HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 429 Too Many Requests"
+2025-07-29 19:35:00,911 - groq._base_client - INFO - Retrying request to /openai/v1/chat/completions in 7.000000 seconds
+2025-07-29 19:35:01,524 - httpx - INFO - HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 429 Too Many Requests"
+2025-07-29 19:35:01,525 - groq._base_client - INFO - Retrying request to /openai/v1/chat/completions in 6.000000 seconds
+2025-07-29 19:35:08,692 - httpx - INFO - HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
+2025-07-29 19:35:08,693 - httpx - INFO - HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
+2025-07-29 19:35:09,101 - httpx - INFO - HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
+2025-07-29 19:35:09,103 - i - INFO - Generated 3 answers with rate limiting
+2025-07-29 19:35:09,103 - i - INFO - Synthesizing final answer...
+2025-07-29 19:35:09,104 - i - WARNING - Skipping synthesis due to rate limiting, using best single answer
+2025-07-29 19:35:09,104 - i - INFO - Question 7 processed in 11.78s
+Batches: 100%|███████████████████████████████████████████████████████████████████████████| 1/1 [00:00<00:00, 12.00it/s]
+2025-07-29 19:35:10,022 - httpx - INFO - HTTP Request: POST https://0172f817-ca8e-447a-94fb-5f1e2eacde09.eu-central-1-0.aws.cloud.qdrant.io:6333/collections/pdf_chunks_1753797727/points/search "HTTP/1.1 200 OK"
+2025-07-29 19:35:10,024 - i - INFO - Generating answers with rate limiting using 3 threads...
+2025-07-29 19:35:10,025 - i - INFO - Waiting 2.67s for API key 1
+2025-07-29 19:35:10,025 - i - INFO - Waiting 2.67s for API key 2
+2025-07-29 19:35:10,025 - i - INFO - Waiting 3.08s for API key 3
+2025-07-29 19:35:12,898 - httpx - INFO - HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 429 Too Many Requests"
+2025-07-29 19:35:12,899 - httpx - INFO - HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 429 Too Many Requests"
+2025-07-29 19:35:12,899 - groq._base_client - INFO - Retrying request to /openai/v1/chat/completions in 13.000000 seconds
+2025-07-29 19:35:12,899 - groq._base_client - INFO - Retrying request to /openai/v1/chat/completions in 13.000000 seconds
+2025-07-29 19:35:13,300 - httpx - INFO - HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 429 Too Many Requests"
+2025-07-29 19:35:13,301 - groq._base_client - INFO - Retrying request to /openai/v1/chat/completions in 12.000000 seconds
+2025-07-29 19:35:26,304 - httpx - INFO - HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
+2025-07-29 19:35:26,920 - httpx - INFO - HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
+2025-07-29 19:35:27,124 - httpx - INFO - HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
+2025-07-29 19:35:27,126 - i - INFO - Generated 3 answers with rate limiting
+2025-07-29 19:35:27,126 - i - INFO - Synthesizing final answer...
+2025-07-29 19:35:27,126 - i - WARNING - Skipping synthesis due to rate limiting, using best single answer
+2025-07-29 19:35:27,126 - i - INFO - Question 8 processed in 18.02s
+Batches: 100%|███████████████████████████████████████████████████████████████████████████| 1/1 [00:00<00:00,  8.77it/s]
+2025-07-29 19:35:28,148 - httpx - INFO - HTTP Request: POST https://0172f817-ca8e-447a-94fb-5f1e2eacde09.eu-central-1-0.aws.cloud.qdrant.io:6333/collections/pdf_chunks_1753797727/points/search "HTTP/1.1 200 OK"
+2025-07-29 19:35:28,150 - i - INFO - Generating answers with rate limiting using 3 threads...
+2025-07-29 19:35:28,150 - i - INFO - Waiting 2.77s for API key 1
+2025-07-29 19:35:28,151 - i - INFO - Waiting 2.97s for API key 2
+2025-07-29 19:35:28,151 - i - INFO - Waiting 2.16s for API key 3
+2025-07-29 19:35:30,401 - httpx - INFO - HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 429 Too Many Requests"
+2025-07-29 19:35:30,402 - groq._base_client - INFO - Retrying request to /openai/v1/chat/completions in 14.000000 seconds
+2025-07-29 19:35:31,124 - httpx - INFO - HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 429 Too Many Requests"
+2025-07-29 19:35:31,124 - groq._base_client - INFO - Retrying request to /openai/v1/chat/completions in 13.000000 seconds
+2025-07-29 19:35:31,233 - httpx - INFO - HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 429 Too Many Requests"
+2025-07-29 19:35:31,234 - groq._base_client - INFO - Retrying request to /openai/v1/chat/completions in 13.000000 seconds
+2025-07-29 19:35:44,941 - httpx - INFO - HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
+2025-07-29 19:35:45,351 - httpx - INFO - HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
+2025-07-29 19:35:45,556 - httpx - INFO - HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
+2025-07-29 19:35:45,558 - i - INFO - Generated 3 answers with rate limiting
+2025-07-29 19:35:45,558 - i - INFO - Synthesizing final answer...
+2025-07-29 19:35:45,558 - i - WARNING - Skipping synthesis due to rate limiting, using best single answer
+2025-07-29 19:35:45,559 - i - INFO - Question 9 processed in 18.43s
+Batches: 100%|███████████████████████████████████████████████████████████████████████████| 1/1 [00:00<00:00,  9.09it/s]
+2025-07-29 19:35:46,580 - httpx - INFO - HTTP Request: POST https://0172f817-ca8e-447a-94fb-5f1e2eacde09.eu-central-1-0.aws.cloud.qdrant.io:6333/collections/pdf_chunks_1753797727/points/search "HTTP/1.1 200 OK"
+2025-07-29 19:35:46,582 - i - INFO - Generating answers with rate limiting using 3 threads...
+2025-07-29 19:35:46,582 - i - INFO - Waiting 2.77s for API key 1
+2025-07-29 19:35:46,583 - i - INFO - Waiting 2.36s for API key 2
+2025-07-29 19:35:46,583 - i - INFO - Waiting 2.97s for API key 3
+2025-07-29 19:35:49,140 - httpx - INFO - HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 429 Too Many Requests"
+2025-07-29 19:35:49,141 - groq._base_client - INFO - Retrying request to /openai/v1/chat/completions in 14.000000 seconds
+2025-07-29 19:35:49,622 - httpx - INFO - HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 429 Too Many Requests"
+2025-07-29 19:35:49,622 - groq._base_client - INFO - Retrying request to /openai/v1/chat/completions in 13.000000 seconds
+2025-07-29 19:35:49,665 - httpx - INFO - HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 429 Too Many Requests"
+2025-07-29 19:35:49,666 - groq._base_client - INFO - Retrying request to /openai/v1/chat/completions in 14.000000 seconds
+2025-07-29 19:36:03,580 - httpx - INFO - HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
+2025-07-29 19:36:03,784 - httpx - INFO - HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 429 Too Many Requests"
+2025-07-29 19:36:03,785 - groq._base_client - INFO - Retrying request to /openai/v1/chat/completions in 6.000000 seconds
+2025-07-29 19:36:04,501 - httpx - INFO - HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
+2025-07-29 19:36:09,929 - httpx - INFO - HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 429 Too Many Requests"
+2025-07-29 19:36:09,930 - i - WARNING - Rate limit hit for group 2, waiting 5s (attempt 1)
+2025-07-29 19:36:15,048 - httpx - INFO - HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 429 Too Many Requests"
+2025-07-29 19:36:15,049 - groq._base_client - INFO - Retrying request to /openai/v1/chat/completions in 2.000000 seconds
+2025-07-29 19:36:18,223 - httpx - INFO - HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
+2025-07-29 19:36:18,225 - i - INFO - Generated 3 answers with rate limiting
+2025-07-29 19:36:18,225 - i - INFO - Synthesizing final answer...
+2025-07-29 19:36:18,633 - httpx - INFO - HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 429 Too Many Requests"
+2025-07-29 19:36:18,633 - groq._base_client - INFO - Retrying request to /openai/v1/chat/completions in 5.000000 seconds
+2025-07-29 19:36:24,509 - httpx - INFO - HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
+2025-07-29 19:36:24,511 - i - INFO - Question 10 processed in 38.95s
+2025-07-29 19:36:24,512 - i - INFO - Rate-limited processing completed in 235.79s
+INFO:     127.0.0.1:52524 - "POST /hackrx/run HTTP/1.1" 200 OK
