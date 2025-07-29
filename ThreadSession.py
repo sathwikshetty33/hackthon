@@ -20,7 +20,7 @@ from asyncio import Semaphore
 from .configs import *
 from .models import *
 from .vectorDatabase.quadrantdb import *
-from .neo4j import *
+from .graphDatabase.neo4j import *
 from .logging import *
 logger = setup_logger()
 # Load environment variables

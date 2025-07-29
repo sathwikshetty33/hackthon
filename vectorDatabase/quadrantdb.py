@@ -8,7 +8,7 @@ import spacy
 from sentence_transformers import SentenceTransformer
 from qdrant_client import QdrantClient
 from qdrant_client.http import models
-from neo4j import GraphDatabase
+from graphDatabase.neo4j import GraphDatabase
 from groq import Groq
 import json
 import uuid
@@ -34,7 +34,7 @@ from asyncio import Semaphore
 from ..configs import *
 from ..models import *
 from .quadrantdb import *
-from ..neo4j import *
+from ..graphDatabase.neo4j import *
 from .baseVectorDb import *
 # Configure logging
 from ..logging import *

@@ -8,7 +8,7 @@ import spacy
 from sentence_transformers import SentenceTransformer
 from qdrant_client import QdrantClient
 from qdrant_client.http import models
-from neo4j import GraphDatabase
+from graphDatabase.neo4j import GraphDatabase
 from groq import Groq
 import json
 import uuid
@@ -31,7 +31,7 @@ import numpy as np
 import multiprocessing
 import hashlib
 from asyncio import Semaphore
-
+from .baseGraphDb import *
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -44,11 +44,11 @@ load_dotenv()
 
 
 
-class Neo4jKnowledgeGraph:
+class Neo4jKnowledgeGraph(BaseGraphDb):
     """Neo4j integration for document relationships and semantic enhancement"""
     
     def __init__(self, uri: str, username: str, password: str):
-        # DISABLED Neo4j temporarily due to connection issues
+        super.__init__()
         self.driver = None
         logger.info("Neo4j disabled due to connection issues")
     
