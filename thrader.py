@@ -63,6 +63,37 @@ class OptimalMultiThreadPDFQASystem:
         self.last_request_time = {}  # Track last request time per API key
         self.min_request_interval = 4.0  # INCREASED: 4 seconds between requests per key
         
+        # Initialize Redis Session Manager if available
+        self.redis_session = None
+        if hasattr(self.config, 'REDIS_AVAILABLE') and self.config.REDIS_AVAILABLE:
+            try:
+                redis_config = {
+                    'host': getattr(self.config, 'REDIS_HOST', 'localhost'),
+                    'port': getattr(self.config, 'REDIS_PORT', 6379),
+                    'password': getattr(self.config, 'REDIS_PASSWORD', None),
+                    'db': getattr(self.config, 'REDIS_DB', 0)
+                }
+                
+                # Import the Redis session class
+                from .redissession import RedisSessionManager
+                
+                self.redis_session = RedisSessionManager(**redis_config)
+                
+                if self.redis_session.is_available:
+                    logger.info("Redis session manager initialized successfully")
+                else:
+                    logger.warning("Redis session manager created but connection failed")
+                    self.redis_session = None
+                    
+            except ImportError:
+                logger.warning("RedisSessionManager not found - Redis caching disabled")
+                self.redis_session = None
+            except Exception as e:
+                logger.error(f"Failed to initialize Redis session: {e}")
+                self.redis_session = None
+        else:
+            logger.info("Redis caching disabled in config")
+        
         # Initialize multiple Groq clients
         for i, api_key in enumerate(self.config.GROQ_API_KEYS):
             client = Groq(api_key=api_key)
@@ -404,8 +435,48 @@ class OptimalMultiThreadPDFQASystem:
             return []
     
     def create_embeddings_and_store(self, chunks: List[Dict], document_id: str) -> List[Dict]:
-        """Create embeddings and store in Qdrant"""
+        """Create embeddings and store in Redis/Qdrant with fallback"""
         logger.info("Creating embeddings and storing in databases...")
+        
+        # Check if Redis is available and configured
+        redis_available = (hasattr(self.config, 'REDIS_AVAILABLE') and 
+                          self.config.REDIS_AVAILABLE and 
+                          hasattr(self, 'redis_session') and 
+                          self.redis_session.is_available)
+        
+        # Try to get chunks from Redis cache first
+        if redis_available:
+            try:
+                cached_chunks = self.redis_session.get_chunks(document_id)
+                cached_embeddings = self.redis_session.get_embeddings(document_id)
+                
+                if cached_chunks and cached_embeddings and len(cached_chunks) == len(chunks):
+                    logger.info(f"Using cached embeddings from Redis for {len(cached_chunks)} chunks")
+                    # Merge cached embeddings with current chunks
+                    for i, chunk in enumerate(chunks):
+                        if i < len(cached_embeddings):
+                            chunk['embedding'] = cached_embeddings[i]
+                    
+                    # Still store in Qdrant if available for search functionality
+                    if self.qdrant_db:
+                        try:
+                            # Group chunks by thread for Qdrant storage
+                            thread_chunks = defaultdict(list)
+                            for chunk in chunks:
+                                thread_id = chunk.get('thread_id', 0)
+                                thread_chunks[thread_id].append(chunk)
+                            
+                            for thread_id, chunk_group in thread_chunks.items():
+                                self.qdrant_db.add_chunks_by_thread(chunk_group, thread_id)
+                            
+                            logger.info("Cached chunks also stored in Qdrant for search")
+                        except Exception as e:
+                            logger.warning(f"Failed to store cached chunks in Qdrant: {e}")
+                    
+                    return chunks
+            except Exception as e:
+                logger.warning(f"Failed to retrieve from Redis cache: {e}")
+                redis_available = False
         
         # Group chunks by thread for parallel processing
         thread_chunks = defaultdict(list)
@@ -429,7 +500,10 @@ class OptimalMultiThreadPDFQASystem:
                 
                 # Store in Qdrant
                 if self.qdrant_db:
-                    self.qdrant_db.add_chunks_by_thread(chunk_group, thread_id)
+                    try:
+                        self.qdrant_db.add_chunks_by_thread(chunk_group, thread_id)
+                    except Exception as e:
+                        logger.warning(f"Failed to store in Qdrant for thread {thread_id}: {e}")
                 
                 logger.info(f"Thread {thread_id}: Processed {len(chunk_group)} chunks")
                 return chunk_group
@@ -452,9 +526,31 @@ class OptimalMultiThreadPDFQASystem:
             except Exception as e:
                 logger.error(f"Embedding thread {thread_id} failed: {e}")
         
+        # Store in Redis cache if available
+        if redis_available:
+            try:
+                # Extract embeddings for separate storage
+                embeddings = [chunk['embedding'] for chunk in updated_chunks]
+                
+                # Store chunks and embeddings separately for better memory management
+                chunks_stored = self.redis_session.store_chunks(updated_chunks, document_id, expiry_hours=24)
+                embeddings_stored = self.redis_session.store_embeddings(embeddings, document_id, expiry_hours=24)
+                
+                if chunks_stored and embeddings_stored:
+                    logger.info(f"Successfully cached {len(updated_chunks)} chunks and embeddings in Redis")
+                else:
+                    logger.warning("Partial Redis caching - some data may not be cached")
+                    
+            except Exception as e:
+                logger.error(f"Failed to store in Redis cache: {e}")
+                # Continue without Redis caching
+        
         # Store document structure in Neo4j (DISABLED)
         if self.neo4j_kg:
-            self.neo4j_kg.store_document_structure(updated_chunks, document_id)
+            try:
+                self.neo4j_kg.store_document_structure(updated_chunks, document_id)
+            except Exception as e:
+                logger.warning(f"Failed to store in Neo4j: {e}")
         
         logger.info(f"Embeddings created and stored for {len(updated_chunks)} chunks")
         return updated_chunks
@@ -653,13 +749,16 @@ ANSWER:"""
             return valid_results[0]['answer']
     
     async def process_questions_rate_limited(self, pdf_url: str, questions: List[str]) -> List[str]:
-        """Main processing pipeline with rate limiting"""
-        logger.info(f"Processing {len(questions)} questions with rate limiting...")
+        """Main processing pipeline with rate limiting and Redis caching"""
+        logger.info(f"Processing {len(questions)} questions with rate limiting and caching...")
         start_time = time.time()
         
         try:
             # Generate document ID
             document_id = hashlib.md5(pdf_url.encode()).hexdigest()
+            
+            # Check Redis availability
+            redis_available = (self.redis_session and self.redis_session.is_available)
             
             # Step 1: Download and parse PDF
             pdf_bytes = await self.download_pdf(pdf_url)
@@ -668,14 +767,26 @@ ANSWER:"""
             # Step 2: Multi-thread chunking
             chunks = self.optimal_multi_thread_chunking(pages)
             
-            # Step 3: Create embeddings and store
+            # Step 3: Create embeddings and store (with Redis caching)
             chunks = self.create_embeddings_and_store(chunks, document_id)
             
-            # Step 4: Process each question with rate limiting
+            # Step 4: Process each question with rate limiting and caching
             final_answers = []
             
-            for question_index, question in enumerate(questions):  # ADDED question_index
+            for question_index, question in enumerate(questions):
                 question_start = time.time()
+                
+                # Check Redis cache for this specific question first
+                cached_answer = None
+                if redis_available:
+                    try:
+                        cached_answer = self.redis_session.get_question_cache(question, document_id)
+                        if cached_answer:
+                            logger.info(f"Using cached answer for question {question_index + 1}")
+                            final_answers.append(cached_answer)
+                            continue
+                    except Exception as e:
+                        logger.warning(f"Failed to retrieve cached answer: {e}")
                 
                 # Get question embedding
                 question_embedding = self.embedding_model.encode([question], normalize_embeddings=True)[0].tolist()
@@ -683,11 +794,39 @@ ANSWER:"""
                 # Search with thread distribution
                 chunk_groups = []
                 if self.qdrant_db:
-                    chunk_groups = self.qdrant_db.search_with_thread_distribution(
-                        query_vector=question_embedding,
-                        top_k=self.config.MAX_CONTEXT_CHUNKS,
-                        num_threads=self.config.QUERY_THREADS
-                    )
+                    try:
+                        chunk_groups = self.qdrant_db.search_with_thread_distribution(
+                            query_vector=question_embedding,
+                            top_k=self.config.MAX_CONTEXT_CHUNKS,
+                            num_threads=self.config.QUERY_THREADS
+                        )
+                    except Exception as e:
+                        logger.warning(f"Qdrant search failed, falling back to simple search: {e}")
+                        # Fallback: use chunks directly if Qdrant fails
+                        if chunks:
+                            # Simple similarity search fallback
+                            chunk_similarities = []
+                            for chunk in chunks:
+                                if 'embedding' in chunk:
+                                    # Calculate cosine similarity
+                                    chunk_emb = np.array(chunk['embedding'])
+                                    query_emb = np.array(question_embedding)
+                                    similarity = np.dot(chunk_emb, query_emb) / (
+                                        np.linalg.norm(chunk_emb) * np.linalg.norm(query_emb)
+                                    )
+                                    chunk['similarity_score'] = float(similarity)
+                                    chunk_similarities.append(chunk)
+                            
+                            # Sort by similarity and group for threads
+                            chunk_similarities.sort(key=lambda x: x.get('similarity_score', 0), reverse=True)
+                            top_chunks = chunk_similarities[:self.config.MAX_CONTEXT_CHUNKS]
+                            
+                            # Distribute among threads
+                            chunks_per_thread = max(1, len(top_chunks) // self.config.QUERY_THREADS)
+                            chunk_groups = [
+                                top_chunks[i:i + chunks_per_thread]
+                                for i in range(0, len(top_chunks), chunks_per_thread)
+                            ]
                 
                 # Generate answers with rate limiting
                 parallel_results = self.rate_limited_answer_generation(question, chunk_groups, document_id)
@@ -696,11 +835,26 @@ ANSWER:"""
                 final_answer = self.synthesize_final_answer(question, parallel_results)
                 final_answers.append(final_answer)
                 
+                # Cache the answer in Redis if available
+                if redis_available and final_answer:
+                    try:
+                        self.redis_session.store_question_cache(question, final_answer, document_id, expiry_hours=6)
+                    except Exception as e:
+                        logger.warning(f"Failed to cache answer: {e}")
+                
                 question_time = time.time() - question_start
                 logger.info(f"Question {question_index + 1} processed in {question_time:.2f}s")
             
             total_time = time.time() - start_time
             logger.info(f"Rate-limited processing completed in {total_time:.2f}s")
+            
+            # Log cache statistics if Redis is available
+            if redis_available:
+                try:
+                    cache_stats = self.redis_session.get_cache_stats(document_id)
+                    logger.info(f"Cache stats: {cache_stats}")
+                except Exception as e:
+                    logger.warning(f"Failed to get cache stats: {e}")
             
             return final_answers
             
@@ -709,7 +863,7 @@ ANSWER:"""
             raise HTTPException(status_code=500, detail=str(e))
     
     def close_connections(self):
-        """Close all connections"""
+        """Close all connections including Redis"""
         if self.neo4j_kg:
             self.neo4j_kg.close()
         
@@ -717,5 +871,13 @@ ANSWER:"""
             self.chunk_executor.shutdown(wait=True)
         if hasattr(self, 'query_executor'):
             self.query_executor.shutdown(wait=True)
+        
+        # Close Redis connections
+        if self.redis_session:
+            try:
+                self.redis_session.close()
+                logger.info("Redis session closed")
+            except Exception as e:
+                logger.error(f"Error closing Redis session: {e}")
         
         logger.info("All connections closed")
